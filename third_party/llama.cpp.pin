@@ -1,0 +1,8 @@
+# The inference runtime this repository builds, pinned exactly.
+# vendor-sync.sh and build-runtime.sh read this file; nothing else defines it.
+url=https://github.com/ggml-org/llama.cpp.git
+commit=8ea290247c87ced2ab245b056ffe96dbcf90d36c
+# Patches applied on top of the pinned commit, in order. Each line:
+# <file under patches/> <sha256 of the patch file>
+# (none yet — edit third_party/llama.cpp in place, then dump a .patch here
+# so the change survives the next vendor-sync)
