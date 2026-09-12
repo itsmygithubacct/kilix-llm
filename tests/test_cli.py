@@ -8,7 +8,7 @@ import sys
 import unittest
 
 from kilix_llm import models, paths, runtime
-from kilix_llm.cli import build_parser
+from kilix_llm.cli import build_parser, run_argv, serve_argv
 
 
 REPO = paths.REPO_DIR
@@ -94,3 +94,50 @@ class ArgvTests(unittest.TestCase):
         self.assertIn("GGML_CUDA=OFF", flags)
         self.assertIn("GGML_VULKAN=OFF", flags)
         self.assertIn("LLAMA_CURL=OFF", flags)
+
+
+def built(name: str) -> str | None:
+    path = os.path.join(paths.bin_dir(), name)
+    return path if os.path.isfile(path) and os.access(path, os.X_OK) else None
+
+
+class RuntimeFlagTests(unittest.TestCase):
+    """Every flag run and serve emit must be one the built binary accepts.
+
+    `-no-cnv` shipped in `run` and llama-cli refused it: at the pinned commit
+    the conversation flags are registered for llama-completion only, so the
+    command died on its own argv after an hour of downloading the weights.
+    Pointing -m at a path that does not exist makes each binary parse the whole
+    command line and then stop at the model, which needs no GGUF and no GPU.
+    """
+
+    MISSING_MODEL = "/nonexistent/kilix-llm-test.gguf"
+
+    def assert_argv_parses(self, argv: list[str]) -> None:
+        result = subprocess.run(
+            argv,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=120,
+        )
+        output = result.stdout + result.stderr
+        self.assertNotIn("invalid argument", output, " ".join(argv))
+        self.assertIn(self.MISSING_MODEL, output, "parsing stopped before the model")
+
+    def test_run_flags_are_accepted_by_llama_cli(self) -> None:
+        cli = built("llama-cli")
+        if cli is None:
+            self.skipTest("llama-cli is not built")
+        parser = build_parser()
+        for extra in ([], ["--think"]):
+            with self.subTest(extra=extra):
+                args = parser.parse_args(["run", *extra, "hi"])
+                self.assert_argv_parses(run_argv(args, cli, self.MISSING_MODEL))
+
+    def test_serve_flags_are_accepted_by_llama_server(self) -> None:
+        server = built("llama-server")
+        if server is None:
+            self.skipTest("llama-server is not built")
+        args = build_parser().parse_args(["serve"])
+        self.assert_argv_parses(serve_argv(args, server, self.MISSING_MODEL))

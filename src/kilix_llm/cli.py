@@ -158,14 +158,14 @@ def cmd_pull(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_run(args: argparse.Namespace) -> int:
-    try:
-        runtime.require_vendor()
-        model = models.resolve(args.model_id, args.model)
-        cli = runtime.binary("llama-cli")
-    except (models.ModelError, runtime.RuntimeError_, pin.PinError) as error:
-        handle(error)
-        return 1
+def run_argv(args: argparse.Namespace, cli: str, model: str) -> list[str]:
+    """The llama-cli command line for one prompt.
+
+    `-st` is what makes it one shot. The conversation pair `-cnv`/`-no-cnv`
+    belongs to llama-completion at the pinned commit, so llama-cli rejects it
+    outright; `-st` is llama-cli's own single-turn flag and is not interactive
+    when the turn arrives as `-p`.
+    """
     record = models.spec(args.model_id)
     argv = [
         cli,
@@ -178,24 +178,30 @@ def cmd_run(args: argparse.Namespace) -> int:
         str(args.n_predict),
         "-p",
         args.prompt,
-        "-no-cnv",
+        "-st",
     ]
     if not args.think:
         argv.extend(["--reasoning", "off"])
+    return argv
+
+
+def cmd_run(args: argparse.Namespace) -> int:
+    try:
+        runtime.require_vendor()
+        model = models.resolve(args.model_id, args.model)
+        cli = runtime.binary("llama-cli")
+    except (models.ModelError, runtime.RuntimeError_, pin.PinError) as error:
+        handle(error)
+        return 1
+    argv = run_argv(args, cli, model)
     os.execv(argv[0], argv)
     return 1
 
 
-def cmd_serve(args: argparse.Namespace) -> int:
-    try:
-        runtime.require_vendor()
-        model = models.resolve(args.model_id, args.model)
-        server = runtime.binary("llama-server")
-    except (models.ModelError, runtime.RuntimeError_, pin.PinError) as error:
-        handle(error)
-        return 1
+def serve_argv(args: argparse.Namespace, server: str, model: str) -> list[str]:
+    """The llama-server command line for the loopback endpoint."""
     record = models.spec(args.model_id)
-    argv = [
+    return [
         server,
         "-m",
         model,
@@ -210,6 +216,17 @@ def cmd_serve(args: argparse.Namespace) -> int:
         "--cache-type-v",
         "q8_0",
     ]
+
+
+def cmd_serve(args: argparse.Namespace) -> int:
+    try:
+        runtime.require_vendor()
+        model = models.resolve(args.model_id, args.model)
+        server = runtime.binary("llama-server")
+    except (models.ModelError, runtime.RuntimeError_, pin.PinError) as error:
+        handle(error)
+        return 1
+    argv = serve_argv(args, server, model)
     os.execv(argv[0], argv)
     return 1
 
