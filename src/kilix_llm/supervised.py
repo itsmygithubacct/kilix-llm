@@ -7,7 +7,7 @@ def encode_target(tokenizer, messages, answer, max_tokens):
     if type(max_tokens) is not int or max_tokens < 2:
         raise ValueError("max_tokens must be at least two")
     prompt = tokenizer.apply_chat_template(messages, tokenize=True, add_generation_prompt=True,
-                                          enable_thinking=False)
+                                          enable_thinking=False, return_dict=False)
     target = tokenizer.encode(answer, add_special_tokens=False)
     if tokenizer.eos_token_id is None:
         raise ValueError("tokenizer needs an explicit end-of-turn token")

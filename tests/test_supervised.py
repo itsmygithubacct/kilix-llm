@@ -6,7 +6,7 @@ from kilix_llm.supervised import encode_target, target_positions, target_loss
 class Tokenizer:
     eos_token_id = 9
     def apply_chat_template(self, messages, **options):
-        assert options == dict(tokenize=True, add_generation_prompt=True, enable_thinking=False)
+        assert options == dict(tokenize=True, add_generation_prompt=True, enable_thinking=False, return_dict=False)
         return [1, 2, 3]
     def encode(self, answer, **options):
         assert options == dict(add_special_tokens=False)
@@ -14,6 +14,19 @@ class Tokenizer:
 
 
 class SupervisedTests(unittest.TestCase):
+    def test_real_fast_tokenizer_returns_flat_token_ids(self):
+        try:
+            from tokenizers import Tokenizer as Backend, models, pre_tokenizers
+            from transformers import PreTrainedTokenizerFast
+        except ImportError:
+            self.skipTest('optional tokenizer runtime not installed')
+        backend=Backend(models.WordLevel({'<eos>':0,'<unk>':1,'Hello':2,'Answer':3},unk_token='<unk>'))
+        backend.pre_tokenizer=pre_tokenizers.Whitespace()
+        tokenizer=PreTrainedTokenizerFast(tokenizer_object=backend,eos_token='<eos>',unk_token='<unk>',
+            chat_template="{% for message in messages %}{{ message['content'] }} {% endfor %}Hello ")
+        row=encode_target(tokenizer,[{'role':'user','content':'Hello'}],'Answer',8)
+        self.assertEqual(row,{'input_ids':[2,2,3,0],'labels':[-100,-100,3,0]})
+
     def test_assistant_mask_and_causal_alignment(self):
         row = encode_target(Tokenizer(), [{"role":"user","content":"test"}], "answer", 6)
         self.assertEqual(row, {"input_ids":[1,2,3,7,8,9],"labels":[-100,-100,-100,7,8,9]})
