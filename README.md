@@ -32,6 +32,28 @@ cd kilix-llm
 | `kilix-llm path` | where the weights resolve |
 | `kilix-llm run PROMPT` | one shot via `llama-cli` |
 | `kilix-llm serve` | `llama-server` on loopback |
+| `kilix-llm ask-help` | experimental document help through explicit local answer/ranking runs |
+
+For a prepared `kilix-help-llm` checkout and its local trained runs:
+
+```sh
+kilix-llm ask-help --help-module ../kilix-modules/kilix-help-llm \
+  --answer-run answer-r1 --rank-run rank-r1 'How do I list panes?'
+```
+
+This command delegates to the help module's CPU adapter runtime and returns
+its JSON unchanged, including source revision, corpus digest, citations,
+refusals and qualification status. The module verifies artifacts and matches
+the two runs to the same corpus/context, sizes each load through the shared
+model sizer, and releases the ranking model before loading the answer model.
+Its custom scoring head remains separate from prose generation. User data
+uses `GPU_TERMINAL_HOME` (default `~/.local/gpu_terminal`). The optional
+`--sizer` selects the shared provider explicitly.
+
+The current help path is experimental and unqualified. This is a local
+one-shot interface using the help runtime; it does not export adapters to
+GGUF or add them to the llama-server catalog. Qualification requires measured
+answer quality and verification of the actual serving configuration.
 
 `--gpu-layers` exists and defaults to **0**. Thinking mode is off unless
 `--think` is passed: at a few tokens per second a reasoning preamble would

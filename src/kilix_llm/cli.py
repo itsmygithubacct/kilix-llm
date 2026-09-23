@@ -8,7 +8,7 @@ import shutil
 import subprocess
 import sys
 
-from . import __version__, models, paths, pin, runtime
+from . import __version__, help_query, models, paths, pin, runtime
 
 PROG = "kilix-llm"
 
@@ -268,6 +268,16 @@ def add_runtime_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def cmd_ask_help(args: argparse.Namespace) -> int:
+    try:
+        argv = help_query.command(args.help_module, args.answer_run, args.rank_run,
+                                  args.question, args.max_new_tokens, args.sizer)
+        os.execv(argv[0], argv)
+    except (ValueError, OSError) as error:
+        die(str(error), 2)
+    return 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog=PROG,
@@ -275,6 +285,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--version", action="version", version=f"{PROG} {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
+
+    help_p = sub.add_parser("ask-help", help="experimental document help using explicit local runs")
+    help_p.add_argument("--help-module", required=True, help="kilix-help-llm checkout directory")
+    help_p.add_argument("--answer-run", required=True)
+    help_p.add_argument("--rank-run", required=True)
+    help_p.add_argument("--max-new-tokens", type=int, default=96)
+    help_p.add_argument("--sizer", help="shared model-sizer provider path")
+    help_p.add_argument("question")
+    help_p.set_defaults(func=cmd_ask_help)
 
     sub.add_parser("doctor", help="what is present, what is missing").set_defaults(
         func=cmd_doctor
