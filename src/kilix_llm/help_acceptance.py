@@ -7,7 +7,10 @@ import json
 import math
 import os
 from pathlib import Path
+from pathlib import PurePosixPath
+import re
 import secrets
+import subprocess
 
 from . import paths
 
@@ -116,3 +119,56 @@ def save_diagnostic(result: dict, policy_file: str) -> Path:
                   stream, indent=2)
         stream.write("\n")
     return path
+
+
+def resolve_source(result: dict, revision: str, docs_root: str) -> dict:
+    """Verify that the cited paragraph is present at the pinned Git revision."""
+    source = result.get("source")
+    if not isinstance(source, dict) or not re.fullmatch(r"[0-9a-f]{40}", revision):
+        raise ValueError("help source or revision is invalid")
+    relative = source.get("path")
+    if not isinstance(relative, str):
+        raise ValueError("help source path is missing")
+    path = PurePosixPath(relative)
+    if (path.is_absolute() or ".." in path.parts or
+            path.parts[:3] != ("docs", "help", "operations") or
+            path.suffix != ".md"):
+        raise ValueError("help source is outside the operations documentation")
+    line, text, source_id = source.get("line"), source.get("text"), source.get("id")
+    if (type(line) is not int or line < 1 or not isinstance(text, str) or
+            not isinstance(source_id, str) or ":" not in source_id):
+        raise ValueError("help source paragraph metadata is invalid")
+    document, _, ordinal = source_id.partition(":")
+    if document != path.stem or not ordinal.isdecimal():
+        raise ValueError("help source ID does not resolve to the document")
+    repo = Path(docs_root).expanduser().resolve()
+    if not repo.is_dir():
+        raise ValueError("help documentation checkout is missing")
+    command = ["git", "--no-replace-objects", "-C", str(repo)]
+    try:
+        commit = subprocess.run([*command, "rev-parse", revision + "^{commit}"],
+                                capture_output=True, check=True, timeout=30).stdout.decode().strip()
+        tree = subprocess.run([*command, "ls-tree", revision, "--", relative],
+                              capture_output=True, check=True, timeout=30).stdout.decode()
+        blob = subprocess.run([*command, "show", revision + ":" + relative],
+                              capture_output=True, check=True, timeout=30).stdout
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+        raise ValueError("pinned help documentation is unavailable") from error
+    tree_parts = tree.split()
+    if (commit != revision or len(tree_parts) < 4 or
+            tree_parts[0] not in {"100644", "100755"} or tree_parts[1] != "blob" or
+            len(blob) > 1024 * 1024):
+        raise ValueError("help source is not a bounded pinned document")
+    try:
+        body = blob.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise ValueError("help document is not UTF-8") from error
+    paragraphs = list(re.finditer(r"\S[\s\S]*?(?=\n\s*\n|\Z)", body))
+    index = int(ordinal)
+    if index >= len(paragraphs):
+        raise ValueError("help source paragraph index is absent")
+    match = paragraphs[index]
+    if match.group().strip() != text or body[:match.start()].count("\n") + 1 != line:
+        raise ValueError("help source paragraph differs from the pinned revision")
+    return {"revision": revision, "path": relative, "line": line,
+            "source_id": source_id, "verified": True}

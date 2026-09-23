@@ -276,6 +276,8 @@ def cmd_ask_help(args: argparse.Namespace) -> int:
         if args.calibration_policy:
             if args.max_new_tokens != 96:
                 raise ValueError("calibrated help requires the frozen 96-token generation limit")
+            if not args.docs_root:
+                raise ValueError("calibrated help requires --docs-root for pinned source resolution")
             policy, freeze = help_acceptance.load_policy(
                 args.calibration_policy, args.answer_run, args.rank_run)
             child = subprocess.run(argv, capture_output=True, text=True, check=False)
@@ -284,6 +286,8 @@ def cmd_ask_help(args: argparse.Namespace) -> int:
                 return child.returncode
             result = json.loads(child.stdout)
             visible = help_acceptance.apply(result, policy, freeze)
+            visible["source_resolution"] = help_acceptance.resolve_source(
+                result, freeze["source_revision"], args.docs_root)
             diagnostic = help_acceptance.save_diagnostic(result, args.calibration_policy)
             visible["diagnostic_path"] = str(diagnostic)
             sys.stdout.write(json.dumps(visible, sort_keys=True) + "\n")
@@ -310,6 +314,7 @@ def build_parser() -> argparse.ArgumentParser:
     help_p.add_argument("--sizer", help="shared model-sizer provider path")
     help_p.add_argument("--calibration-policy",
                         help="private frozen threshold artifact for calibrated acceptance")
+    help_p.add_argument("--docs-root", help="Git checkout containing the pinned help documents")
     help_p.add_argument("question")
     help_p.set_defaults(func=cmd_ask_help)
 

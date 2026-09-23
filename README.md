@@ -55,11 +55,13 @@ one-shot interface using the help runtime; it does not export adapters to
 GGUF or add them to the llama-server catalog. Qualification requires measured
 answer quality and verification of the actual serving configuration.
 
-Once a frozen calibration threshold exists, add `--calibration-policy PATH` to
-`ask-help`. The host verifies the policy, run reports, corpus revision and
-sequential ranking result. It delivers a cited model answer only when its top
-ranking score meets the inclusive threshold, preserves an explicit refusal,
-and otherwise returns the fixed static-document fallback. The untouched model
+Once a frozen calibration threshold exists, add `--calibration-policy PATH`
+and `--docs-root KILIX_CHECKOUT` to `ask-help`. The host verifies the policy,
+run reports, corpus revision, sequential ranking result, and the selected
+paragraph against the pinned Git document. It delivers a cited model answer
+only when its top ranking score meets the inclusive threshold. It preserves an
+explicit refusal and otherwise returns the fixed static-document fallback.
+The untouched model
 result is saved under private `kilix-help-llm/diagnostics` in
 `GPU_TERMINAL_HOME`; rejected drafts are omitted from the user-visible JSON.
 The calibrated path remains unqualified until held-out quality and actual host
