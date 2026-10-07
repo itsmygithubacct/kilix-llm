@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+# Run one command that a model wrote inside a bubblewrap box.
+#
+# The box has no network (unless --net), a cleared environment, read-only
+# /usr and /etc, a private /tmp, and exactly one writable directory: WORKDIR,
+# which is also HOME and the working directory. It dies with this script, so a
+# timeout or a killed agent loop takes the whole command tree with it.
+#
+# The agent loop and the model client stay outside: only the command runs
+# here, so a box without network still has the loop reach a loopback
+# `kilix-llm serve`. See docs/agent-loops.md.
+set -euo pipefail
+
+if [ "${BASH_VERSINFO[0]:-0}" -lt 4 ] \
+    || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -le 3 ]; }; then
+  printf 'agent-sandbox: bash 4.4+ required (running %s)\n' "${BASH_VERSION:-unknown}" >&2
+  exit 1
+fi
+
+die() { printf 'agent-sandbox: %s\n' "$*" >&2; exit 2; }
+
+usage() {
+  cat <<'EOF'
+usage: agent-sandbox [--net] [--keep-env NAME]... [--timeout SECONDS] WORKDIR -- COMMAND [ARG]...
+       agent-sandbox [options] WORKDIR -c 'SHELL COMMAND LINE'
+
+  --net             share the host network (default: none, not even the host's loopback)
+  --keep-env NAME   pass one variable through (default: PATH, HOME, LANG, PAGER, TERM only)
+  --timeout S       kill the whole box after S seconds; exit status 124
+  -c LINE           run LINE with bash -c, as an agent's command string
+
+Exit status is the command's, 124 on timeout, 2 on a usage error.
+EOF
+}
+
+net=0
+timeout=""
+keep=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --net) net=1; shift ;;
+    --keep-env) [ $# -ge 2 ] || die "--keep-env needs a name"
+                [[ "$2" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || die "invalid variable name: $2"
+                keep+=("$2"); shift 2 ;;
+    --timeout) [ $# -ge 2 ] || die "--timeout needs seconds"
+               [[ "$2" =~ ^[0-9]+$ ]] && [ "$2" -gt 0 ] || die "--timeout must be a positive integer"
+               timeout="$2"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    --) die "WORKDIR comes before --" ;;
+    -*) die "unknown option: $1" ;;
+    *) break ;;
+  esac
+done
+
+[ $# -ge 2 ] || { usage >&2; exit 2; }
+workdir="$1"; shift
+[ -d "$workdir" ] || die "WORKDIR is not a directory: $workdir"
+workdir="$(cd "$workdir" && pwd -P)"
+case "$workdir" in
+  /|/usr|/usr/*|/etc|/etc/*|/proc|/proc/*|/dev|/dev/*) die "WORKDIR must be a project directory, not $workdir" ;;
+esac
+
+case "$1" in
+  --) shift; [ $# -ge 1 ] || die "no command after --"; cmd=("$@") ;;
+  -c) [ $# -eq 2 ] || die "-c takes exactly one command line"; cmd=(bash -c "$2") ;;
+  *) die "expected -- COMMAND or -c LINE after WORKDIR" ;;
+esac
+
+command -v bwrap >/dev/null || die "bubblewrap (bwrap) is not installed"
+
+args=(--unshare-all --die-with-parent --new-session --clearenv
+      --setenv PATH /usr/local/bin:/usr/bin:/bin
+      --setenv HOME "$workdir" --setenv LANG C.UTF-8 --setenv PAGER cat
+      --setenv TERM "${TERM:-dumb}")
+[ "$net" -eq 1 ] && args+=(--share-net)
+for name in "${keep[@]+"${keep[@]}"}"; do
+  [ -n "${!name+set}" ] && args+=(--setenv "$name" "${!name}")
+done
+args+=(--ro-bind /usr /usr)
+# Merged-/usr systems link these into /usr; others need their own read-only bind.
+for top in /bin /sbin /lib /lib32 /lib64; do
+  if [ -L "$top" ]; then
+    args+=(--symlink "$(readlink "$top")" "$top")
+  elif [ -d "$top" ]; then
+    args+=(--ro-bind "$top" "$top")
+  fi
+done
+args+=(--ro-bind /etc /etc --proc /proc --dev /dev --tmpfs /tmp
+       --bind "$workdir" "$workdir" --chdir "$workdir" --)
+
+if [ -n "$timeout" ]; then
+  exec timeout --kill-after=5 "$timeout" bwrap "${args[@]}" "${cmd[@]}" </dev/null
+fi
+exec bwrap "${args[@]}" "${cmd[@]}" </dev/null
