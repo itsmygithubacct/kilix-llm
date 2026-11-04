@@ -157,7 +157,19 @@ the cause of the slowdown from the earlier short benchmark is unresolved.
 | `kilix-llm run PROMPT` | one shot via `llama-cli` |
 | `kilix-llm serve` | `llama-server` on loopback |
 | `kilix-llm vm setup/start/pi/shell/status/stop` | persistent QEMU guest, Pi sessions, and host GPU server |
-| `kilix-llm ask-help` | experimental document help through explicit local answer/ranking runs |
+| `kilix-llm ask-help` | local answers from the default Kilix Qwen 2B Help model |
+
+For 0.2.3 RC1, run `kilix help-setup` once, then
+`kilix-llm ask-help 'How do I list panes?'`. The default is
+`kilix-qwen-sft1-2b`, using its pinned Qwen3.5-2B parent and unmerged adapter in
+FP32 on the CPU. JSON includes a command, explanation and related help links
+under `presentation`. The module can be located through installed Kilix,
+`--help-module PATH`, or `KILIX_HELP_MODULE`. It never executes the suggested
+command. Model installation is explicit; missing files produce setup guidance.
+
+This selection targets everyday Kilix help. Development scores are 30/32
+supported answers and 8/8 unknown-state refusals, with 41/72 on the older
+retention set. These are exposed results, not independent qualification.
 
 For a prepared `kilix-help-llm` checkout and its local trained runs:
 

@@ -6,12 +6,31 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from kilix_llm import paths
 from kilix_llm.help_query import command
 
 
 class HelpQueryTests(unittest.TestCase):
+    def test_default_model_keeps_question_as_one_argument(self):
+        with tempfile.TemporaryDirectory() as directory:
+            launcher = Path(directory) / 'kilix-help-llm'
+            launcher.touch(mode=0o700)
+            question = '--run $(touch must-not-exist); list panes'
+            self.assertEqual(command(directory, None, None, question),
+                             [str(launcher), 'answer', '--json', '--', question])
+            with self.assertRaisesRegex(ValueError, 'both'):
+                command(directory, 'answer', None, question)
+            with self.assertRaisesRegex(ValueError, 'fixed 96'):
+                command(directory, None, None, question, 128)
+
+    def test_default_can_use_installed_host(self):
+        with patch.dict(os.environ, {}, clear=True), patch('shutil.which') as which:
+            which.side_effect = [None, '/usr/bin/kilix']
+            self.assertEqual(command(None, None, None, 'List panes'),
+                             ['/usr/bin/kilix', 'help-answer', '--json', '--', 'List panes'])
+
     def test_child_receives_exact_question_and_private_data_environment(self):
         with tempfile.TemporaryDirectory() as temporary:
             module = Path(temporary) / "module with spaces"

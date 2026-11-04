@@ -335,6 +335,8 @@ def cmd_ask_help(args: argparse.Namespace) -> int:
         argv = help_query.command(args.help_module, args.answer_run, args.rank_run,
                                   args.question, args.max_new_tokens, args.sizer)
         if args.calibration_policy:
+            if not args.answer_run or not args.rank_run:
+                raise ValueError("historical calibration policies require explicit answer and rank runs")
             if args.max_new_tokens != 96:
                 raise ValueError("calibrated help requires the frozen 96-token generation limit")
             if not args.docs_root:
@@ -370,10 +372,10 @@ def build_parser() -> argparse.ArgumentParser:
     doctor_p = sub.add_parser("doctor", help="what is present, what is missing")
     doctor_p.add_argument("--backend", choices=runtime.BACKENDS, default="cpu")
     doctor_p.set_defaults(func=cmd_doctor)
-    help_p = sub.add_parser("ask-help", help="experimental document help using explicit local runs")
-    help_p.add_argument("--help-module", required=True, help="kilix-help-llm checkout directory")
-    help_p.add_argument("--answer-run", required=True)
-    help_p.add_argument("--rank-run", required=True)
+    help_p = sub.add_parser("ask-help", help="local answers using the default Kilix Qwen 2B Help model")
+    help_p.add_argument("--help-module", help="kilix-help-llm checkout directory; otherwise use installed Kilix")
+    help_p.add_argument("--answer-run", help="override with a historical answer run; requires --rank-run")
+    help_p.add_argument("--rank-run", help="historical rank run paired with --answer-run")
     help_p.add_argument("--max-new-tokens", type=int, default=96)
     help_p.add_argument("--sizer", help="shared model-sizer provider path")
     help_p.add_argument("--calibration-policy",
