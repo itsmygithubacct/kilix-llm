@@ -25,7 +25,8 @@ def owned_files() -> list[str]:
     for dirpath, dirnames, filenames in os.walk(REPO_DIR):
         dirnames[:] = [name for name in dirnames if name not in SKIP_DIRS]
         for name in filenames:
-            if name.endswith(".pyc"):
+            # Linked worktrees store Git metadata in a file, not a directory.
+            if name == ".git" or name.endswith(".pyc"):
                 continue
             found.append(os.path.join(dirpath, name))
     return found

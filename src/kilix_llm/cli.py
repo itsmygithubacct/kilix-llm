@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import subprocess
 import sys
 
-from . import __version__, models, paths, pin, runtime, vm
+from . import __version__, help_acceptance, help_query, models, paths, pin, runtime, vm
 
 PROG = "kilix-llm"
 
@@ -329,6 +330,35 @@ def add_runtime_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--device", help="GPU name from `kilix-llm devices`, e.g. Vulkan0")
 
 
+def cmd_ask_help(args: argparse.Namespace) -> int:
+    try:
+        argv = help_query.command(args.help_module, args.answer_run, args.rank_run,
+                                  args.question, args.max_new_tokens, args.sizer)
+        if args.calibration_policy:
+            if args.max_new_tokens != 96:
+                raise ValueError("calibrated help requires the frozen 96-token generation limit")
+            if not args.docs_root:
+                raise ValueError("calibrated help requires --docs-root for pinned source resolution")
+            policy, freeze = help_acceptance.load_policy(
+                args.calibration_policy, args.answer_run, args.rank_run)
+            child = subprocess.run(argv, capture_output=True, text=True, check=False)
+            if child.returncode:
+                sys.stderr.write(child.stderr)
+                return child.returncode
+            result = json.loads(child.stdout)
+            visible = help_acceptance.apply(result, policy, freeze)
+            visible["source_resolution"] = help_acceptance.resolve_source(
+                result, freeze["source_revision"], args.docs_root)
+            diagnostic = help_acceptance.save_diagnostic(result, args.calibration_policy)
+            visible["diagnostic_path"] = str(diagnostic)
+            sys.stdout.write(json.dumps(visible, sort_keys=True) + "\n")
+            return 0
+        os.execv(argv[0], argv)
+    except (ValueError, OSError) as error:
+        die(str(error), 2)
+    return 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog=PROG,
@@ -340,6 +370,18 @@ def build_parser() -> argparse.ArgumentParser:
     doctor_p = sub.add_parser("doctor", help="what is present, what is missing")
     doctor_p.add_argument("--backend", choices=runtime.BACKENDS, default="cpu")
     doctor_p.set_defaults(func=cmd_doctor)
+    help_p = sub.add_parser("ask-help", help="experimental document help using explicit local runs")
+    help_p.add_argument("--help-module", required=True, help="kilix-help-llm checkout directory")
+    help_p.add_argument("--answer-run", required=True)
+    help_p.add_argument("--rank-run", required=True)
+    help_p.add_argument("--max-new-tokens", type=int, default=96)
+    help_p.add_argument("--sizer", help="shared model-sizer provider path")
+    help_p.add_argument("--calibration-policy",
+                        help="private frozen threshold artifact for calibrated acceptance")
+    help_p.add_argument("--docs-root", help="Git checkout containing the pinned help documents")
+    help_p.add_argument("question")
+    help_p.set_defaults(func=cmd_ask_help)
+
     sub.add_parser("vendor", help="print the llama.cpp pin").set_defaults(func=cmd_vendor)
     build_p = sub.add_parser("build", help="compile the vendored llama.cpp")
     build_p.add_argument("--backend", choices=runtime.BACKENDS, default="cpu")
