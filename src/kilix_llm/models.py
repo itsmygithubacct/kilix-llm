@@ -1,4 +1,4 @@
-"""The one model this checkout is built to run: Qwen3.8 27B at Q4."""
+"""Pinned GGUF identities for the RAM and GPU models."""
 
 from __future__ import annotations
 
@@ -9,9 +9,22 @@ from . import paths
 
 DEFAULT_MODEL_ID = "qwen3.8-27b"
 
-# Unsloth Dynamic Q4_K_M. Size and sha256 are the Hugging Face LFS payload
-# identity for that exact filename, not a guess from a parameter count.
+# Size and sha256 identify each exact Hugging Face LFS payload.
 MODELS = {
+    "qwen3.5-4b": {
+        "title": "Qwen3.5 4B Q6 (GPU)",
+        "file": "Qwen3.5-4B-Q6_K.gguf",
+        "size": 3_525_956_768,
+        "sha256": "fdedd781c9ce676ab66b018ca247ff78e8a33c98098a822c1e2d5075e7718f66",
+        "url": (
+            "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/"
+            "e87f176479d0855a907a41277aca2f8ee7a09523/Qwen3.5-4B-Q6_K.gguf"
+        ),
+        "publisher": "unsloth/Qwen3.5-4B-GGUF",
+        "ctx": 8192,
+        "quant": "Q6_K",
+        "n_gpu_layers": 99,
+    },
     "qwen3.8-27b": {
         "title": "Qwen3.8 27B Q4",
         "file": "Qwen3.8-27B-UD-Q4_K_M.gguf",
@@ -63,13 +76,13 @@ def resolve(model_id: str = DEFAULT_MODEL_ID, override: str | None = None) -> st
     if not os.path.isfile(path):
         raise ModelError(
             f"{record['title']} is not downloaded ({path} missing).\n"
-            f"kilix-llm does not fetch weights unless asked:  kilix-llm pull"
+            f"kilix-llm does not fetch weights unless asked:  kilix-llm pull --model-id {model_id}"
         )
     actual = os.path.getsize(path)
     if actual != record["size"]:
         raise ModelError(
             f"{path} is {actual} bytes, expected {record['size']} — "
-            f"an interrupted download? `kilix-llm pull` resumes it"
+            f"an interrupted download? `kilix-llm pull --model-id {model_id}` resumes it"
         )
     return path
 

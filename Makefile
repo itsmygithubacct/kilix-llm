@@ -1,4 +1,5 @@
-PYTHON ?= python3
+UV ?= uv
+RUN_PYTHON = $(UV) run --no-project --managed-python --python 3.12 python
 
 .DEFAULT_GOAL := help
 
@@ -22,10 +23,10 @@ help:
 		'  KILIX_LLM_BUILD_DIR=$(KILIX_LLM_BUILD_DIR)'
 
 compile:
-	$(PYTHON) -m compileall -q src tests kilix-llm
+	$(RUN_PYTHON) -m compileall -q src tests kilix-llm
 
 test:
-	PYTHONPATH=src $(PYTHON) -m unittest discover -s tests -v
+	PYTHONPATH=src $(RUN_PYTHON) -m unittest discover -s tests -v
 
 check: compile test
 

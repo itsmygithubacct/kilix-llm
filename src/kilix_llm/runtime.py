@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
+import subprocess
 
 from . import paths
 from .pin import PinError, load as load_pin
 
 BINARIES = ("llama-cli", "llama-server", "llama-bench")
+BACKENDS = ("cpu", "vulkan")
 
 CMAKE_FLAGS = (
     "-DCMAKE_BUILD_TYPE=Release",
@@ -63,8 +66,6 @@ def vendor_commit() -> str | None:
     if not os.path.exists(git_dir):
         return None
     try:
-        import subprocess
-
         result = subprocess.run(
             ["git", "-C", paths.VENDOR_DIR, "rev-parse", "HEAD"],
             check=False,
@@ -78,7 +79,7 @@ def vendor_commit() -> str | None:
     return result.stdout.strip() or None
 
 
-def missing_build_packages() -> list[str]:
+def missing_build_packages(backend: str = "cpu") -> list[str]:
     missing: list[str] = []
     if shutil.which("cmake") is None:
         missing.append("cmake")
@@ -88,19 +89,54 @@ def missing_build_packages() -> list[str]:
         and shutil.which("clang++") is None
     ):
         missing.append("g++")
+    if shutil.which("rsync") is None:
+        missing.append("rsync")
+    if backend == "vulkan" and shutil.which("glslc") is None:
+        missing.append("glslc")
     return missing
 
 
-def binary(name: str) -> str:
+def binary(name: str, backend: str = "cpu") -> str:
     if name not in BINARIES:
         raise RuntimeError_(f"unknown runtime binary {name!r}")
-    path = os.path.join(paths.bin_dir(), name)
+    path = os.path.join(paths.bin_dir(backend), name)
     if not os.path.isfile(path) or not os.access(path, os.X_OK):
         raise RuntimeError_(
             f"{name} is not built ({path} missing).\n"
-            f"Build the vendored runtime:  kilix-llm build"
+            f"Build the vendored runtime:  kilix-llm build --backend {backend}"
         )
     return path
+
+
+def devices(backend: str = "vulkan") -> dict[str, str]:
+    """Read the selected runtime's device names without loading weights."""
+    cli = binary("llama-cli", backend)
+    try:
+        result = subprocess.run(
+            [cli, "--list-devices"], capture_output=True, text=True, timeout=60,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise RuntimeError_(f"cannot list {backend} devices: {error}") from error
+    if result.returncode:
+        raise RuntimeError_(f"cannot list {backend} devices: {result.stderr.strip()}")
+    return dict(re.findall(r"^\s+(\w+\d+): (.+)$", result.stdout, re.MULTILINE))
+
+
+def select_device(backend: str, requested: str | None) -> str:
+    available = devices(backend)
+    if requested in available:
+        return requested
+    if requested:
+        raise RuntimeError_(f"GPU device {requested!r} is unavailable; run kilix-llm devices")
+    if len(available) == 1:
+        return next(iter(available))
+    if not available:
+        raise RuntimeError_(f"no GPU devices available in the {backend} runtime")
+    raise RuntimeError_(
+        "multiple GPU devices available; choose --device from: "
+        + ", ".join(f"{name} ({description})" for name, description in available.items())
+    )
 
 
 def require_vendor() -> None:

@@ -1,14 +1,15 @@
-"""The checkout is runnable without being installed, and run/serve stay on RAM."""
+"""Launcher, model profiles, device selection, and runtime argument checks."""
 
 from __future__ import annotations
 
 import os
 import subprocess
-import sys
+import tempfile
 import unittest
+from unittest import mock
 
 from kilix_llm import models, paths, runtime
-from kilix_llm.cli import build_parser, run_argv, serve_argv
+from kilix_llm.cli import build_parser, gpu_layers, run_argv, runtime_backend, serve_argv
 
 
 REPO = paths.REPO_DIR
@@ -18,7 +19,7 @@ LAUNCHER = os.path.join(REPO, "kilix-llm")
 class LauncherTests(unittest.TestCase):
     def test_help_and_version(self) -> None:
         help_run = subprocess.run(
-            [sys.executable, LAUNCHER, "--help"],
+            [LAUNCHER, "--help"],
             capture_output=True,
             text=True,
             check=False,
@@ -26,7 +27,7 @@ class LauncherTests(unittest.TestCase):
         self.assertEqual(help_run.returncode, 0, help_run.stderr)
         self.assertIn("Qwen3.8", help_run.stdout)
         version = subprocess.run(
-            [sys.executable, LAUNCHER, "--version"],
+            [LAUNCHER, "--version"],
             capture_output=True,
             text=True,
             check=False,
@@ -36,7 +37,7 @@ class LauncherTests(unittest.TestCase):
 
     def test_doctor_runs_without_weights(self) -> None:
         result = subprocess.run(
-            [sys.executable, LAUNCHER, "doctor"],
+            [LAUNCHER, "doctor"],
             capture_output=True,
             text=True,
             check=False,
@@ -47,7 +48,7 @@ class LauncherTests(unittest.TestCase):
 
     def test_vendor_prints_the_pin(self) -> None:
         result = subprocess.run(
-            [sys.executable, LAUNCHER, "vendor"],
+            [LAUNCHER, "vendor"],
             capture_output=True,
             text=True,
             check=False,
@@ -60,7 +61,7 @@ class LauncherTests(unittest.TestCase):
         env = os.environ.copy()
         env["KILIX_LLM_MODELS_DIR"] = os.path.join(REPO, "build", "empty-models")
         result = subprocess.run(
-            [sys.executable, LAUNCHER, "run", "hello"],
+            [LAUNCHER, "run", "hello"],
             capture_output=True,
             text=True,
             env=env,
@@ -69,15 +70,74 @@ class LauncherTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("kilix-llm pull", result.stderr)
 
+    def test_checkout_wins_over_another_working_directory_and_pythonpath(self) -> None:
+        with tempfile.TemporaryDirectory() as other:
+            with open(os.path.join(other, "kilix_llm.py"), "w", encoding="utf-8") as handle:
+                handle.write("raise RuntimeError('wrong checkout imported')\n")
+            with open(os.path.join(other, ".python-version"), "w", encoding="utf-8") as handle:
+                handle.write("3.11\n")
+            env = os.environ.copy()
+            env["PYTHONPATH"] = other
+            result = subprocess.run(
+                [LAUNCHER, "--version"],
+                cwd=other,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("0.1.0", result.stdout)
+
 
 class ArgvTests(unittest.TestCase):
     def test_default_gpu_layers_is_zero(self) -> None:
         parser = build_parser()
         run_args = parser.parse_args(["run", "hi"])
-        self.assertEqual(run_args.gpu_layers, 0)
+        self.assertEqual(gpu_layers(run_args), 0)
         serve_args = parser.parse_args(["serve"])
-        self.assertEqual(serve_args.gpu_layers, 0)
+        self.assertEqual(gpu_layers(serve_args), 0)
         self.assertEqual(serve_args.host, "127.0.0.1")
+
+    def test_gpu_profile_uses_all_layers_and_explicit_cpu_override(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["run", "--model-id", "qwen3.5-4b", "hi"])
+        self.assertEqual(runtime_backend(args), "vulkan")
+        argv = run_argv(args, "llama-cli", "model.gguf")
+        for flag, value in (("-ngl", "99"), ("-c", "8192"), ("--fit", "off"),
+                            ("--reasoning", "off"), ("--cache-type-k", "q8_0")):
+            self.assertEqual(argv[argv.index(flag) + 1], value)
+        args.device = "Vulkan0"
+        argv = run_argv(args, "llama-cli", "model.gguf")
+        self.assertEqual(argv[argv.index("--override-tensor") + 1], r"^token_embd\.weight$=Vulkan0")
+        args.device = None
+        args.backend = "cpu"
+        with self.assertRaises(runtime.RuntimeError_):
+            runtime_backend(args)
+        args.gpu_layers = 0
+        self.assertEqual(runtime_backend(args), "cpu")
+        argv = run_argv(args, "llama-cli", "model.gguf")
+        self.assertEqual(argv[argv.index("-ngl") + 1], "0")
+        self.assertEqual(argv[argv.index("--device") + 1], "none")
+
+    def test_gpu_server_defaults_to_one_slot_without_thinking(self) -> None:
+        args = build_parser().parse_args(["serve", "--model-id", "qwen3.5-4b"])
+        argv = serve_argv(args, "llama-server", "model.gguf")
+        self.assertEqual(argv[argv.index("--parallel") + 1], "1")
+        self.assertEqual(argv[argv.index("--reasoning") + 1], "off")
+        args.think = True
+        argv = serve_argv(args, "llama-server", "model.gguf")
+        self.assertEqual(argv[argv.index("--reasoning") + 1], "on")
+
+    def test_gpu_model_size_is_checked_against_selected_catalog(self) -> None:
+        with tempfile.NamedTemporaryFile() as model:
+            model.truncate(models.spec("qwen3.5-4b")["size"])
+            self.assertEqual(models.resolve("qwen3.5-4b", model.name), model.name)
+            with self.assertRaises(models.ModelError):
+                models.resolve("qwen3.8-27b", model.name)
+            model.truncate(1024)
+            with self.assertRaises(models.ModelError):
+                models.resolve("qwen3.5-4b", model.name)
 
     def test_catalogued_q4_identity(self) -> None:
         record = models.spec()
@@ -96,8 +156,36 @@ class ArgvTests(unittest.TestCase):
         self.assertIn("LLAMA_CURL=OFF", flags)
 
 
-def built(name: str) -> str | None:
-    path = os.path.join(paths.bin_dir(), name)
+class DeviceTests(unittest.TestCase):
+    def test_device_listing_and_ambiguous_selection(self) -> None:
+        result = subprocess.CompletedProcess([], 0, stdout=(
+            "Available devices:\n"
+            "  Vulkan0: Quadro RTX 3000 (NVK TU106) (6144 MiB, 5000 MiB free)\n"
+            "  Vulkan1: Intel UHD Graphics (32000 MiB, 20000 MiB free)\n"
+        ), stderr="")
+        with mock.patch.object(runtime, "binary", return_value="llama-cli"), \
+                mock.patch.object(runtime.subprocess, "run", return_value=result):
+            self.assertEqual(runtime.select_device("vulkan", "Vulkan0"), "Vulkan0")
+            with self.assertRaisesRegex(runtime.RuntimeError_, "multiple"):
+                runtime.select_device("vulkan", None)
+            with self.assertRaisesRegex(runtime.RuntimeError_, "unavailable"):
+                runtime.select_device("vulkan", "none")
+            result.stdout = "Available devices:\n  (none)\n"
+            with self.assertRaisesRegex(runtime.RuntimeError_, "no GPU"):
+                runtime.select_device("vulkan", None)
+            result.returncode = 1
+            with self.assertRaisesRegex(runtime.RuntimeError_, "cannot list"):
+                runtime.devices("vulkan")
+
+    def test_cpu_and_vulkan_builds_have_separate_paths(self) -> None:
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertNotEqual(paths.bin_dir("cpu"), paths.bin_dir("vulkan"))
+        with mock.patch.dict(os.environ, {"KILIX_LLM_BUILD_DIR": "/custom/runtime"}):
+            self.assertEqual(paths.bin_dir("vulkan"), "/custom/runtime/bin")
+
+
+def built(name: str, backend: str = "cpu") -> str | None:
+    path = os.path.join(paths.bin_dir(backend), name)
     return path if os.path.isfile(path) and os.access(path, os.X_OK) else None
 
 
@@ -139,5 +227,25 @@ class RuntimeFlagTests(unittest.TestCase):
         server = built("llama-server")
         if server is None:
             self.skipTest("llama-server is not built")
-        args = build_parser().parse_args(["serve"])
+        args = build_parser().parse_args(["serve", "--port", "0"])
         self.assert_argv_parses(serve_argv(args, server, self.MISSING_MODEL))
+
+    def test_gpu_profile_flags_are_accepted_by_vulkan_runtime(self) -> None:
+        cli, server = built("llama-cli", "vulkan"), built("llama-server", "vulkan")
+        if not cli or not server:
+            self.skipTest("Vulkan runtime is not built")
+        available = runtime.devices("vulkan")
+        if not available:
+            self.skipTest("no Vulkan GPU available")
+        device = next(iter(available))
+        for command, binary, builder, extra in (
+            ("run", cli, run_argv, ["hi"]),
+            ("serve", server, serve_argv, ["--port", "0"]),
+        ):
+            for thinking in ([], ["--think"]):
+                with self.subTest(command=command, thinking=thinking):
+                    args = build_parser().parse_args([
+                        command, "--model-id", "qwen3.5-4b", "--device", device,
+                        *thinking, *extra,
+                    ])
+                    self.assert_argv_parses(builder(args, binary, self.MISSING_MODEL))

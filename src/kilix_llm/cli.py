@@ -8,7 +8,7 @@ import shutil
 import subprocess
 import sys
 
-from . import __version__, models, paths, pin, runtime
+from . import __version__, models, paths, pin, runtime, vm
 
 PROG = "kilix-llm"
 
@@ -28,18 +28,46 @@ def handle(error: Exception) -> None:
     raise error
 
 
+def gpu_layers(args: argparse.Namespace) -> int:
+    if args.gpu_layers is not None:
+        return args.gpu_layers
+    return models.spec(args.model_id)["n_gpu_layers"]
+
+
+def runtime_backend(args: argparse.Namespace) -> str:
+    backend = args.backend or ("vulkan" if gpu_layers(args) else "cpu")
+    if gpu_layers(args) and backend == "cpu":
+        raise runtime.RuntimeError_("GPU layers require --backend vulkan; use --gpu-layers 0 for CPU")
+    if not gpu_layers(args) and args.device:
+        raise runtime.RuntimeError_("--device requires GPU layers")
+    return backend
+
+
 def common_runtime_args(args: argparse.Namespace, ctx_default: int) -> list[str]:
     threads = args.threads or runtime.physical_cores()
     ctx = args.ctx or ctx_default
-    ngl = args.gpu_layers
-    return ["-t", str(threads), "-c", str(ctx), "-ngl", str(ngl)]
+    ngl = gpu_layers(args)
+    argv = ["-t", str(threads), "-c", str(ctx), "-ngl", str(ngl)]
+    if ngl:
+        argv.extend(["--split-mode", "none", "--fit", "off", "-fa", "on"])
+        if args.device:
+            argv.extend(["--device", args.device])
+            if args.model_id == "qwen3.5-4b" and ngl >= 99:
+                # llama.cpp otherwise keeps the input embedding on CPU even at full offload.
+                argv.extend(["--override-tensor", rf"^token_embd\.weight$={args.device}"])
+    else:
+        argv.extend(["--device", "none"])
+    return argv
 
 
 def sampling_args(args: argparse.Namespace) -> list[str]:
-    return list(models.THINK_SAMPLING if args.think else models.SAMPLING)
+    argv = list(models.THINK_SAMPLING if args.think else models.SAMPLING)
+    if args.model_id == "qwen3.5-4b":
+        argv.extend(["--min-p", "0", "--presence-penalty", "1.5", "--repeat-penalty", "1"])
+    return argv
 
 
-def cmd_doctor(_args: argparse.Namespace) -> int:
+def cmd_doctor(args: argparse.Namespace) -> int:
     mem = runtime.meminfo()
     try:
         loaded = pin.verify()
@@ -51,7 +79,7 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
     checked_out = runtime.vendor_commit() or "no nested git"
     built = []
     for name in runtime.BINARIES:
-        path = os.path.join(paths.bin_dir(), name)
+        path = os.path.join(paths.bin_dir(args.backend), name)
         built.append(name if os.path.isfile(path) else f"{name} (not built)")
     try:
         model = models.resolve()
@@ -63,7 +91,7 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
     print(f"checkout:   {checked_out}")
     if loaded is not None and checked_out not in ("no nested git", loaded.commit):
         print("            checkout does not match pin commit")
-    print(f"build:      {paths.build_dir()}")
+    print(f"build:      {paths.build_dir(args.backend)} ({args.backend})")
     print(f"binaries:   {', '.join(built)}")
     print(f"cores:      {runtime.physical_cores()} physical")
     print(
@@ -72,8 +100,16 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
         f"{mem['MemTotal'] // (1024 ** 3)} GiB total"
     )
     print(f"model:      {model}")
-    print("offload:    CPU/RAM only (-ngl 0); CUDA and Vulkan are off at build")
-    missing = runtime.missing_build_packages()
+    print("offload:    qwen3.8-27b: CPU/RAM only (-ngl 0); qwen3.5-4b: all GPU layers")
+    for model_id in models.MODELS:
+        if model_id == models.DEFAULT_MODEL_ID:
+            continue
+        try:
+            status = models.resolve(model_id)
+        except models.ModelError as error:
+            status = str(error).split("\n", 1)[0]
+        print(f"{model_id}: {status}")
+    missing = runtime.missing_build_packages(args.backend)
     if missing:
         print("build-deps: missing " + ", ".join(missing))
         return 4
@@ -95,20 +131,29 @@ def cmd_vendor(_args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_build(_args: argparse.Namespace) -> int:
-    missing = runtime.missing_build_packages()
+def cmd_build(args: argparse.Namespace) -> int:
+    missing = runtime.missing_build_packages(args.backend)
     if missing:
         die(
             "cannot build yet — missing: "
             + ", ".join(missing)
             + "\n            install them first (Debian:  sudo apt-get install "
             + " ".join(missing)
-            + "), then rerun:  kilix-llm build",
+            + f"), then rerun:  kilix-llm build --backend {args.backend}",
             4,
         )
     runtime.require_vendor()
     script = os.path.join(paths.SCRIPTS_DIR, "build-runtime.sh")
-    return subprocess.call([script])
+    return subprocess.call([script, "--backend", args.backend])
+
+
+def cmd_devices(args: argparse.Namespace) -> int:
+    available = runtime.devices(args.backend)
+    if not available:
+        die(f"no GPU devices available in the {args.backend} runtime", 4)
+    for name, description in available.items():
+        print(f"{name}: {description}")
+    return 0
 
 
 def cmd_path(args: argparse.Namespace) -> int:
@@ -180,8 +225,9 @@ def run_argv(args: argparse.Namespace, cli: str, model: str) -> list[str]:
         args.prompt,
         "-st",
     ]
-    if not args.think:
-        argv.extend(["--reasoning", "off"])
+    argv.extend(["--reasoning", "on" if args.think else "off"])
+    if gpu_layers(args):
+        argv.extend(["--cache-type-k", "q8_0", "--cache-type-v", "q8_0"])
     return argv
 
 
@@ -189,7 +235,10 @@ def cmd_run(args: argparse.Namespace) -> int:
     try:
         runtime.require_vendor()
         model = models.resolve(args.model_id, args.model)
-        cli = runtime.binary("llama-cli")
+        backend = runtime_backend(args)
+        cli = runtime.binary("llama-cli", backend)
+        if gpu_layers(args):
+            args.device = runtime.select_device(backend, args.device)
     except (models.ModelError, runtime.RuntimeError_, pin.PinError) as error:
         handle(error)
         return 1
@@ -201,7 +250,7 @@ def cmd_run(args: argparse.Namespace) -> int:
 def serve_argv(args: argparse.Namespace, server: str, model: str) -> list[str]:
     """The llama-server command line for the loopback endpoint."""
     record = models.spec(args.model_id)
-    return [
+    argv = [
         server,
         "-m",
         model,
@@ -216,13 +265,22 @@ def serve_argv(args: argparse.Namespace, server: str, model: str) -> list[str]:
         "--cache-type-v",
         "q8_0",
     ]
+    if args.model_id == "qwen3.5-4b":
+        argv.extend([*sampling_args(args), "--parallel", "1"])
+        argv.extend(["--reasoning", "on" if args.think else "off"])
+    elif args.think:
+        argv.extend(["--reasoning", "on"])
+    return argv
 
 
 def cmd_serve(args: argparse.Namespace) -> int:
     try:
         runtime.require_vendor()
         model = models.resolve(args.model_id, args.model)
-        server = runtime.binary("llama-server")
+        backend = runtime_backend(args)
+        server = runtime.binary("llama-server", backend)
+        if gpu_layers(args):
+            args.device = runtime.select_device(backend, args.device)
     except (models.ModelError, runtime.RuntimeError_, pin.PinError) as error:
         handle(error)
         return 1
@@ -241,7 +299,7 @@ def add_model_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--model",
         default=None,
-        help="explicit GGUF path; skips the catalog file name",
+        help="path to the selected catalog model; size/hash still checked against --model-id",
     )
 
 
@@ -263,26 +321,32 @@ def add_runtime_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--gpu-layers",
         type=int,
-        default=0,
-        help="layers to offload; default 0 keeps the whole model in RAM",
+        default=None,
+        help="layers to offload (default: 27B=0, 4B=99/all); 0 selects CPU",
     )
+    parser.add_argument("--backend", choices=runtime.BACKENDS, default=None,
+                        help="runtime build (default: CPU for 0 GPU layers, Vulkan otherwise)")
+    parser.add_argument("--device", help="GPU name from `kilix-llm devices`, e.g. Vulkan0")
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog=PROG,
-        description="Run Qwen3.8 27B Q4 from system RAM via vendored llama.cpp.",
+        description="Run Qwen3.8 27B in RAM or Qwen3.5 4B on GPU via vendored llama.cpp.",
     )
     parser.add_argument("--version", action="version", version=f"{PROG} {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("doctor", help="what is present, what is missing").set_defaults(
-        func=cmd_doctor
-    )
+    doctor_p = sub.add_parser("doctor", help="what is present, what is missing")
+    doctor_p.add_argument("--backend", choices=runtime.BACKENDS, default="cpu")
+    doctor_p.set_defaults(func=cmd_doctor)
     sub.add_parser("vendor", help="print the llama.cpp pin").set_defaults(func=cmd_vendor)
-    sub.add_parser("build", help="compile the vendored llama.cpp, CPU only").set_defaults(
-        func=cmd_build
-    )
+    build_p = sub.add_parser("build", help="compile the vendored llama.cpp")
+    build_p.add_argument("--backend", choices=runtime.BACKENDS, default="cpu")
+    build_p.set_defaults(func=cmd_build)
+    devices_p = sub.add_parser("devices", help="list available GPU device names")
+    devices_p.add_argument("--backend", choices=runtime.BACKENDS, default="vulkan")
+    devices_p.set_defaults(func=cmd_devices)
 
     path_p = sub.add_parser("path", help="print the resolved weight path")
     add_model_args(path_p)
@@ -292,7 +356,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_model_args(verify_p)
     verify_p.set_defaults(func=cmd_verify)
 
-    pull_p = sub.add_parser("pull", help="download the catalogued Q4 GGUF")
+    pull_p = sub.add_parser("pull", help="download and verify a catalogued GGUF")
     add_model_args(pull_p)
     pull_p.set_defaults(func=cmd_pull)
 
@@ -309,11 +373,17 @@ def build_parser() -> argparse.ArgumentParser:
     add_runtime_args(serve_p)
     serve_p.add_argument("--host", default="127.0.0.1")
     serve_p.add_argument("--port", type=int, default=8080)
+    serve_p.add_argument("--think", action="store_true", help="enable thinking mode")
     serve_p.set_defaults(func=cmd_serve)
+    vm.add_parser(sub)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    return args.func(args)
+    try:
+        return args.func(args)
+    except (models.ModelError, runtime.RuntimeError_, pin.PinError) as error:
+        handle(error)
+    return 1

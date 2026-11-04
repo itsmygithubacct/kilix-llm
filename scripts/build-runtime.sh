@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the vendored llama.cpp, CPU only, into this checkout's build directory.
+# Build the vendored llama.cpp with the CPU or Vulkan backend.
 #
 # Patches listed in third_party/llama.cpp.pin are applied to a copy under
 # build/ so the submodule itself stays a clean upstream pin.
@@ -15,32 +15,42 @@ REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 VENDOR_DIR="$REPO_DIR/third_party/llama.cpp"
 PIN="$REPO_DIR/third_party/llama.cpp.pin"
 PATCH_DIR="$REPO_DIR/patches"
-BUILD_ROOT="${KILIX_LLM_BUILD_DIR:-$REPO_DIR/build/llama.cpp}"
-SRC_COPY="$REPO_DIR/build/llama.cpp-src"
 
 die() { printf 'kilix-llm: %s\n' "$*" >&2; exit 1; }
 log() { printf 'kilix-llm: %s\n' "$*" >&2; }
 
 usage() {
   cat <<'EOF'
-usage: build-runtime.sh [--check]
+usage: build-runtime.sh [--backend cpu|vulkan] [--check]
 
   --check   report whether llama-cli is built; build nothing
 
 Environment:
   KILIX_LLM_BUILD_DIR    cmake build directory
-                         (default: <checkout>/build/llama.cpp)
+                         (default: <checkout>/build/llama.cpp[-vulkan])
   KILIX_LLM_BUILD_JOBS   parallel compile jobs (default: nproc)
 EOF
 }
 
 check_only=0
-case "${1:-}" in
-  '') ;;
-  --check) check_only=1 ;;
-  -h|--help) usage; exit 0 ;;
-  *) usage >&2; exit 2 ;;
+backend=cpu
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --check) check_only=1; shift ;;
+    --backend) [ "$#" -ge 2 ] || die '--backend needs cpu or vulkan'; backend=$2; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) usage >&2; exit 2 ;;
+  esac
+done
+backend_flags=(-DGGML_CUDA=OFF -DGGML_VULKAN=OFF)
+suffix=''
+case "$backend" in
+  cpu) ;;
+  vulkan) suffix=-vulkan; backend_flags=(-DGGML_CUDA=OFF -DGGML_VULKAN=ON) ;;
+  *) die "unknown backend $backend (choose cpu or vulkan)" ;;
 esac
+BUILD_ROOT="${KILIX_LLM_BUILD_DIR:-$REPO_DIR/build/llama.cpp$suffix}"
+SRC_COPY="$REPO_DIR/build/llama.cpp$suffix-src"
 
 cli="$BUILD_ROOT/bin/llama-cli"
 
@@ -49,7 +59,7 @@ if [ "$check_only" = 1 ]; then
     log "built: $BUILD_ROOT/bin"
     exit 0
   fi
-  log "not built (run kilix-llm build)"
+  log "not built (run kilix-llm build --backend $backend)"
   exit 1
 fi
 
@@ -86,10 +96,9 @@ jobs="${KILIX_LLM_BUILD_JOBS:-$(nproc)}"
 cmake -S "$SRC_COPY" -B "$BUILD_ROOT" \
     -DCMAKE_BUILD_TYPE=Release \
     -DGGML_NATIVE=ON \
-    -DGGML_CUDA=OFF \
-    -DGGML_VULKAN=OFF \
+    "${backend_flags[@]}" \
     -DGGML_METAL=OFF \
     -DLLAMA_CURL=OFF \
     >/dev/null
 cmake --build "$BUILD_ROOT" -j "$jobs" --target llama-cli llama-server llama-bench
-log "built: $BUILD_ROOT/bin ($applied patch(es))"
+log "built: $BUILD_ROOT/bin ($backend, $applied patch(es))"

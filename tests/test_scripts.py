@@ -29,14 +29,23 @@ class ScriptTests(unittest.TestCase):
                 self.assertIn("set -euo pipefail", text)
                 self.assertIn("BASH_VERSINFO", text)
 
-    def test_build_is_cpu_only(self) -> None:
+    def test_build_defaults_to_cpu_and_supports_vulkan(self) -> None:
         with open(os.path.join(REPO, "scripts", "build-runtime.sh"), encoding="utf-8") as handle:
             text = handle.read()
         for flag in runtime.CMAKE_FLAGS:
             self.assertIn(flag, text)
         self.assertIn("-DGGML_CUDA=OFF", text)
         self.assertIn("-DGGML_VULKAN=OFF", text)
+        self.assertIn("-DGGML_VULKAN=ON", text)
         self.assertIn("KILIX_LLM_BUILD_DIR", text)
+
+    def test_unknown_backend_fails_before_building(self) -> None:
+        result = subprocess.run(
+            [SCRIPTS[1], "--backend", "invalid"], capture_output=True, text=True,
+            check=False,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unknown backend", result.stderr)
 
     def test_vendor_sync_honours_the_pin_file(self) -> None:
         with open(os.path.join(REPO, "scripts", "vendor-sync.sh"), encoding="utf-8") as handle:

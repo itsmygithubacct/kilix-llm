@@ -17,15 +17,16 @@ def gpu_terminal_home() -> str:
     )
 
 
-def build_dir() -> str:
+def build_dir(backend: str = "cpu") -> str:
     override = os.environ.get("KILIX_LLM_BUILD_DIR")
     if override:
         return override
-    return os.path.join(REPO_DIR, "build", "llama.cpp")
+    name = "llama.cpp" if backend == "cpu" else f"llama.cpp-{backend}"
+    return os.path.join(REPO_DIR, "build", name)
 
 
-def bin_dir() -> str:
-    return os.path.join(build_dir(), "bin")
+def bin_dir(backend: str = "cpu") -> str:
+    return os.path.join(build_dir(backend), "bin")
 
 
 def models_dir() -> str:
