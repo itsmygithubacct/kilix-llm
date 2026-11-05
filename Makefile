@@ -3,7 +3,7 @@ RUN_PYTHON = $(UV) run --no-project --managed-python --python 3.12 python
 
 .DEFAULT_GOAL := help
 
-.PHONY: all help check compile test runtime vendor-sync clean
+.PHONY: all help check compile test runtime vendor-sync clean lab-test
 
 # `all` is what a content installer runs: it must not compile llama.cpp and
 # it must not download weights.
@@ -19,6 +19,7 @@ help:
 		'  make test         the suite' \
 		'  make runtime      build vendored llama.cpp, CPU only' \
 		'  make vendor-sync  fetch the pinned llama.cpp commit' \
+		'  make lab-test     weight-edit and interpretability suite' \
 		'' \
 		'  KILIX_LLM_BUILD_DIR=$(KILIX_LLM_BUILD_DIR)'
 
@@ -29,6 +30,9 @@ test:
 	PYTHONPATH=src $(RUN_PYTHON) -m unittest discover -s tests -v
 
 check: compile test
+
+lab-test:
+	PYTHONPATH=lab/src $(RUN_PYTHON) -m unittest discover -s lab/tests -v
 
 runtime:
 	./scripts/build-runtime.sh
