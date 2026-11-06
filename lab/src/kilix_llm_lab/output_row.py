@@ -119,8 +119,9 @@ def solve_output_row(
         "width": problem.width,
         "positive_states": len(problem.positive),
         "guard_states": len(problem.guards),
-        "positive_residual_max": max(positive) if positive else 0.0,
-        "guard_violations_over_limit": sum(value > guard_limit for value in guards),
+        "positive_residual_max": float(max(positive)) if positive else 0.0,
+        # A numpy bool sum is a numpy integer, which json.dump rejects.
+        "guard_violations_over_limit": int(sum(bool(value > guard_limit) for value in guards)),
         "guard_limit": guard_limit,
         "correction_l2": _l2(delta),
         "correction_sha256": _vector_sha256(delta),
@@ -344,7 +345,7 @@ def run_output_row(args) -> int:
         report["quantized_relative_l2"] = patched["quantized_relative_l2"]
     elif args.parent_gguf:
         report["write_refused"] = "solve did not converge"
-    json.dump(report, sys.stdout)
+    json.dump(_json_ready(report), sys.stdout)
     sys.stdout.write("\n")
     return 0 if report["success"] else 1
 
@@ -731,6 +732,23 @@ def _import_gguf():
     except ImportError as error:
         raise LabError("vendored gguf reader could not be imported") from error
     return gguf
+
+
+def _json_ready(value):
+    """Return plain JSON values. Numpy scalars are not accepted by json.dump."""
+    if isinstance(value, dict):
+        return {str(key): _json_ready(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_ready(item) for item in value]
+    numpy = _numpy()
+    if numpy is not None and isinstance(value, numpy.generic):
+        if isinstance(value, numpy.integer):
+            return int(value)
+        if isinstance(value, numpy.floating):
+            return float(value)
+        if isinstance(value, numpy.bool_):
+            return bool(value)
+    return value
 
 
 def _write_json(path: str, payload: dict) -> None:

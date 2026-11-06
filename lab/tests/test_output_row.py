@@ -164,6 +164,32 @@ class OutputRowTests(unittest.TestCase):
             self.assertNotIn("tokens_per_second", report)
             self.assertEqual(report["schema"], SCHEMA)
 
+    def test_npz_command_prints_json(self) -> None:
+        try:
+            import numpy as np
+        except ImportError:
+            self.skipTest("numpy is not installed")
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "capture.npz"
+            np.savez(
+                path,
+                states=np.array([[1.0, 0.0], [0.0, 1.0]], dtype=np.float64),
+                sign=np.array([1.0, -1.0]),
+                bound=np.array([0.4, 0.2]),
+                case_ids=np.array(["dev-a", "dev-b"]),
+                meta=np.array(json.dumps({"regularization": 0.01, "row": 3})),
+            )
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                code = main(["output-row", "--capture", str(path), "--max-iter", "50", "--row", "3"])
+            self.assertEqual(code, 0)
+            report = json.loads(stdout.getvalue())
+            self.assertTrue(report["success"])
+            self.assertIsInstance(report["guard_violations_over_limit"], int)
+            self.assertIsInstance(report["iterations"], int)
+            self.assertEqual(report["row"], 3)
+            self.assertNotIn("delta", report)
+
     def test_command_refuses_a_sealed_capture(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "capture.json"
