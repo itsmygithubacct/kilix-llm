@@ -47,6 +47,7 @@ usage: kilix llm lab COMMAND [ARGS...]
   story       steer one layer and score how the answer changes
   neurons     contrast MLP neurons on one layer
   bench       compare answers before and after one weight edit
+  queue       distribute a JSON suite across remembered machines
 EOF
 }
 
@@ -71,6 +72,8 @@ case "$command" in
     exec "$REPO_DIR/lab/scripts/fetch-model.sh" "$@" ;;
   bench)
     exec "$REPO_DIR/lab/scripts/bench-qwen3-0.6b.sh" "$@" ;;
+  queue)
+    exec "$REPO_DIR/lab/scripts/bench-queue.sh" "$@" ;;
   neuron)
     exec "$REPO_DIR/lab/scripts/neuron.sh" "$@" ;;
   sweep-shards)
