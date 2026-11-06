@@ -19,6 +19,13 @@ lab/scripts/bench-queue.sh run --alias local --alias HOST \
 and downloads each model after checking its sha256. A Vulkan build is kept
 when `llama-server --version` succeeds. Otherwise the CPU build is used.
 
+A remembered connection with `"device": "gpu"` stays on a GPU engine. Vulkan
+is used when that build lists a device. Otherwise the pinned llama.cpp tag is
+built with CUDA when `nvcc` is installed on that machine. The CPU build is
+not used for that connection, and a run is rejected unless the server log
+shows at least one layer offloaded or the process is resident on the GPU. When several devices are listed, the
+worker keeps one discrete GPU.
+
 `run` provisions every alias, times one short completion per model, then
 assigns each question to the machine that would finish sooner. Machines run
 at the same time. One machine runs one model at a time. The score is written

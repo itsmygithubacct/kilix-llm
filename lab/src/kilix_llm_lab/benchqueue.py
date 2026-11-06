@@ -52,14 +52,20 @@ def save_connections(document: dict) -> None:
     path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
 
 
-def remember(alias: str, target: str | None = None) -> dict:
+def remember(alias: str, target: str | None = None, device: str | None = None) -> dict:
     if not alias or "/" in alias or alias.startswith("-"):
         raise LabError("alias must be a plain name")
     document = load_connections()
+    existing = document["connections"].get(alias, {})
     if target:
         record = {"transport": "ssh", "target": target}
     else:
         record = {"transport": "local"}
+    chosen = device or existing.get("device")
+    if chosen:
+        if chosen not in {"gpu", "cpu"}:
+            raise LabError("device must be gpu or cpu")
+        record["device"] = chosen
     document["connections"][alias] = record
     save_connections(document)
     return record
@@ -140,10 +146,73 @@ def _copy(connection: dict, source: Path, dest_name: str) -> None:
     _run(["scp", "-q", "-o", "BatchMode=yes", str(source), f"{connection['target']}:{remote}"])
 
 
-def provision_script(models: dict) -> str:
+def _engine_choice(models: dict, *, require_gpu: bool) -> list[str]:
+    """Bash that sets server and writes engine/kind. A GPU request never selects CPU."""
     builds = {item["id"]: item for item in models["engine"]["builds"]}
     vulkan = builds["vulkan"]
-    cpu = builds["cpu"]
+    tag = shlex.quote(str(models["engine"]["tag"]))
+    lines = [
+        f'fetch {shlex.quote(_asset_url(vulkan))} "$root/engine/vulkan.tar.gz" {shlex.quote(vulkan["sha256"])}',
+        'rm -rf "$root/engine/vulkan"',
+        'mkdir -p "$root/engine/vulkan"',
+        'tar -xzf "$root/engine/vulkan.tar.gz" -C "$root/engine/vulkan"',
+        'server=$(find "$root/engine/vulkan" -type f -name llama-server -print -quit)',
+        'chmod +x "$server"',
+        "has_device() {",
+        '  "$1" --list-devices 2>/dev/null | grep -Eq "^[[:space:]]*(CUDA|Vulkan)[0-9]+:"',
+        "}",
+    ]
+    if not require_gpu:
+        cpu = builds["cpu"]
+        lines += [
+            'if ! "$server" --version >/dev/null 2>&1; then',
+            f'  fetch {shlex.quote(_asset_url(cpu))} "$root/engine/cpu.tar.gz" {shlex.quote(cpu["sha256"])}',
+            '  rm -rf "$root/engine/cpu"',
+            '  mkdir -p "$root/engine/cpu"',
+            '  tar -xzf "$root/engine/cpu.tar.gz" -C "$root/engine/cpu"',
+            '  server=$(find "$root/engine/cpu" -type f -name llama-server -print -quit)',
+            '  chmod +x "$server"',
+            '  printf cpu > "$root/engine/kind"',
+            "else",
+            '  printf vulkan > "$root/engine/kind"',
+            "fi",
+        ]
+        return lines
+    lines += [
+        'cuda="$root/engine/cuda/llama-server"',
+        'if has_device "$server"; then',
+        '  printf vulkan > "$root/engine/kind"',
+        'elif [ -x "$cuda" ] && has_device "$cuda"; then',
+        '  server="$cuda"',
+        '  printf cuda > "$root/engine/kind"',
+        "else",
+        "  if ! command -v nvcc >/dev/null 2>&1; then",
+        '    echo "gpu requested but no gpu device was listed and nvcc is absent" >&2',
+        "    exit 1",
+        "  fi",
+        '  src="$root/engine/cuda-src"',
+        '  log="$root/work/cuda-build.log"',
+        '  rm -rf "$src"',
+        f"  git clone --depth 1 --branch {tag} https://github.com/ggml-org/llama.cpp.git \"$src\" >\"$log\" 2>&1",
+        "  cmake -S \"$src\" -B \"$src/build\" -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=native -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DBUILD_SHARED_LIBS=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_CURL=OFF >>\"$log\" 2>&1",
+        "  cmake --build \"$src/build\" --target llama-server -j \"$(nproc)\" >>\"$log\" 2>&1",
+        '  bin=$(find "$src/build" -type f -name llama-server -print -quit)',
+        '  mkdir -p "$root/engine/cuda"',
+        '  cp "$bin" "$cuda"',
+        '  chmod +x "$cuda"',
+        '  server="$cuda"',
+        '  if ! has_device "$server"; then',
+        '    echo "cuda llama-server listed no gpu device" >&2',
+        '    tail -n 30 "$log" >&2 || true',
+        "    exit 1",
+        "  fi",
+        '  printf cuda > "$root/engine/kind"',
+        "fi",
+    ]
+    return lines
+
+
+def provision_script(models: dict, *, require_gpu: bool = False) -> str:
     lines = [
         "set -euo pipefail",
         f'root="{REMOTE_ROOT}"',
@@ -160,25 +229,9 @@ def provision_script(models: dict) -> str:
         '  echo "$sha  $dest.partial" | sha256sum -c -',
         '  mv "$dest.partial" "$dest"',
         "}",
-        f'fetch {shlex.quote(_asset_url(vulkan))} "$root/engine/vulkan.tar.gz" {shlex.quote(vulkan["sha256"])}',
-        'rm -rf "$root/engine/vulkan"',
-        'mkdir -p "$root/engine/vulkan"',
-        'tar -xzf "$root/engine/vulkan.tar.gz" -C "$root/engine/vulkan"',
-        'server=$(find "$root/engine/vulkan" -type f -name llama-server -print -quit)',
-        'chmod +x "$server"',
-        'if ! "$server" --version >/dev/null 2>&1; then',
-        f'  fetch {shlex.quote(_asset_url(cpu))} "$root/engine/cpu.tar.gz" {shlex.quote(cpu["sha256"])}',
-        '  rm -rf "$root/engine/cpu"',
-        '  mkdir -p "$root/engine/cpu"',
-        '  tar -xzf "$root/engine/cpu.tar.gz" -C "$root/engine/cpu"',
-        '  server=$(find "$root/engine/cpu" -type f -name llama-server -print -quit)',
-        '  chmod +x "$server"',
-        '  printf cpu > "$root/engine/kind"',
-        "else",
-        '  printf vulkan > "$root/engine/kind"',
-        "fi",
-        'printf %s "$server" > "$root/engine/server-path"',
     ]
+    lines.extend(_engine_choice(models, require_gpu=require_gpu))
+    lines.append('printf %s "$server" > "$root/engine/server-path"')
     for model in models["models"]:
         dest = f'$root/models/{model["file"]}'
         lines.append(
@@ -194,7 +247,16 @@ def _asset_url(build: dict) -> str:
 
 
 def provision(connection: dict, models: dict) -> str:
-    return _bash(connection, provision_script(models), timeout=3600)
+    require_gpu = connection.get("device") == "gpu"
+    return _bash(connection, provision_script(models, require_gpu=require_gpu), timeout=7200)
+
+
+def _gpu_layers(kind: str, *, require_gpu: bool) -> int:
+    if kind in {"vulkan", "cuda"}:
+        return 99
+    if require_gpu:
+        raise LabError("gpu was requested and the engine is not a gpu build")
+    return 0
 
 
 def _worker_document(server: str, files: dict[str, str], jobs: list[dict], decoding: dict, gpu_layers: int) -> dict:
@@ -238,8 +300,13 @@ def _write_remote_json(connection: dict, name: str, document: dict) -> None:
         path.unlink(missing_ok=True)
 
 
+def _model_files(connection: dict, models: dict) -> dict[str, str]:
+    root = share_root(connection)
+    return {item["id"]: f'{root}/models/{item["file"]}' for item in models["models"]}
+
+
 def probe(connection: dict, models: dict, suite: dict) -> dict[str, float]:
-    files = {item["id"]: f'{REMOTE_ROOT}/models/{item["file"]}' for item in models["models"]}
+    files = _model_files(connection, models)
     decoding = dict(suite["decoding"])
     decoding["max_tokens"] = 32
     jobs = [
@@ -248,7 +315,10 @@ def probe(connection: dict, models: dict, suite: dict) -> dict[str, float]:
     ]
     kind = _bash(connection, f'cat "{REMOTE_ROOT}/engine/kind"').strip()
     server = _bash(connection, f'cat "{REMOTE_ROOT}/engine/server-path"').strip()
-    document = _worker_document(server, files, jobs, decoding, 99 if kind == "vulkan" else 0)
+    require_gpu = connection.get("device") == "gpu"
+    document = _worker_document(server, files, jobs, decoding, _gpu_layers(kind, require_gpu=require_gpu))
+    document["require_gpu"] = require_gpu
+    document["log_dir"] = f"{share_root(connection)}/work"
     _write_remote_json(connection, "probe-jobs.json", document)
     _remote_python(connection, "probe-jobs.json", "probe-out.json", 180, len(jobs))
     rows = _read_remote_json(connection, "probe-out.json")
@@ -263,7 +333,7 @@ def probe(connection: dict, models: dict, suite: dict) -> dict[str, float]:
 
 
 def run_assigned(connection: dict, models: dict, suite: dict, jobs: list[dict]) -> list[dict]:
-    files = {item["id"]: f'{REMOTE_ROOT}/models/{item["file"]}' for item in models["models"]}
+    files = _model_files(connection, models)
     prompts = {item["id"]: item["prompt"] for item in suite["items"]}
     payload = [
         {"id": job["id"], "model": job["model"], "prompt": prompts[job["id"]]}
@@ -271,7 +341,10 @@ def run_assigned(connection: dict, models: dict, suite: dict, jobs: list[dict]) 
     ]
     kind = _bash(connection, f'cat "{REMOTE_ROOT}/engine/kind"').strip()
     server = _bash(connection, f'cat "{REMOTE_ROOT}/engine/server-path"').strip()
-    document = _worker_document(server, files, payload, suite["decoding"], 99 if kind == "vulkan" else 0)
+    require_gpu = connection.get("device") == "gpu"
+    document = _worker_document(server, files, payload, suite["decoding"], _gpu_layers(kind, require_gpu=require_gpu))
+    document["require_gpu"] = require_gpu
+    document["log_dir"] = f"{share_root(connection)}/work"
     _write_remote_json(connection, "run-jobs.json", document)
     _remote_python(connection, "run-jobs.json", "run-out.json", 240, len(payload))
     return list(_read_remote_json(connection, "run-out.json"))
@@ -310,11 +383,14 @@ def execute(aliases: list[str], suite_path: Path, models_path: Path) -> dict:
     if missing:
         raise LabError("unknown alias: " + ", ".join(missing))
     connections = {alias: stored[alias] for alias in aliases}
+    engines: dict[str, str] = {}
     with ThreadPoolExecutor(max_workers=len(connections)) as pool:
         futures = {pool.submit(provision, connection, models): alias for alias, connection in connections.items()}
         for future in as_completed(futures):
-            future.result()
-            print(f"provision {futures[future]}", flush=True)
+            alias = futures[future]
+            kind = future.result().strip().splitlines()[-1]
+            engines[alias] = kind
+            print(f"provision {alias} {kind}", flush=True)
     rates: dict[str, dict[str, float]] = {}
     with ThreadPoolExecutor(max_workers=len(connections)) as pool:
         futures = {pool.submit(probe, connection, models, suite): alias for alias, connection in connections.items()}
@@ -352,6 +428,7 @@ def execute(aliases: list[str], suite_path: Path, models_path: Path) -> dict:
     summary = {
         "schema": "kilix.llm.bench-run/v1",
         "created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "engines": engines,
         "rates": rates,
         "plan": plan,
         "reports": reports,
@@ -372,6 +449,7 @@ def main(argv: list[str] | None = None) -> int:
     remembered = commands.add_parser("remember")
     remembered.add_argument("--alias", required=True)
     remembered.add_argument("--ssh", default=None)
+    remembered.add_argument("--device", choices=("gpu", "cpu"), default=None)
     commands.add_parser("connections")
     provision_p = commands.add_parser("provision")
     provision_p.add_argument("--alias", required=True)
@@ -383,7 +461,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         if args.command == "remember":
-            remember(args.alias, args.ssh)
+            remember(args.alias, args.ssh, args.device)
         elif args.command == "connections":
             print(json.dumps(load_connections(), indent=2))
         elif args.command == "provision":
