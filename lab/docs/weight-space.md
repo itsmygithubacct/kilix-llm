@@ -114,6 +114,10 @@ Reload the model to drop the edit.
 The same score used by the other lab edits applies here. `before` and
 `after` are the greedy continuations of `--prompt`.
 
+An Ask output row is a different edit. `output-row` solves one
+`output.weight` row from frozen activations. This column command still
+refuses `lm_head`. See [output-row.md](output-row.md).
+
 ## Tests
 
 `make lab-test` covers the arithmetic, the refusals, and the JSON command.

@@ -42,6 +42,7 @@ usage: kilix llm lab COMMAND [ARGS...]
   control     random-direction control: win only by beating every control
   rank        rank recorded generations by distinctive-word mass
   weight      weight-space column edit: remove a direction, scale, or zero
+  output-row  squared-hinge edit of one output row from frozen activations
   catalog     bounded catalog of chosen neurons plus matched random directions
   story       steer one layer and score how the answer changes
   neurons     contrast MLP neurons on one layer
@@ -118,6 +119,9 @@ case "$command" in
     fi
     "$REPO_DIR/lab/scripts/uv-venv.sh"
     exec "$VENV/bin/python" "$REPO_DIR/lab/projects/qwen3_0_6b/run.py" weight "$@" ;;
+  output-row)
+    export PYTHONPATH="$REPO_DIR/lab/src${PYTHONPATH:+:$PYTHONPATH}"
+    exec python3 "$REPO_DIR/lab/projects/qwen3_0_6b/run.py" output-row "$@" ;;
   catalog)
     stand_in=0
     for arg in "$@"; do

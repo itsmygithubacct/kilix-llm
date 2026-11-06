@@ -271,6 +271,19 @@ def build_parser() -> argparse.ArgumentParser:
     weight.add_argument("--quant", default="none", choices=("none", "4bit"))
     weight.add_argument("--prompt", default=None, help="greedy continuation before and after the edit")
     weight.add_argument("--max-new-tokens", type=int, default=32)
+
+    output_row = commands.add_parser(
+        "output-row",
+        help="squared-hinge edit of one output row from frozen activations",
+    )
+    output_row.add_argument("--capture", required=True, help="JSON or npz states, signs, bounds, and case ids")
+    output_row.add_argument("--write-correction", default=None, help="write the float row change to a new JSON file")
+    output_row.add_argument("--parent-gguf", default=None, help="read-only parent model to copy")
+    output_row.add_argument("--output", default=None, help="new model path; the parent is not opened for write")
+    output_row.add_argument("--row", type=int, default=None, help="output.weight row index")
+    output_row.add_argument("--expected-sha256", default=None, help="sha256 the parent file must have")
+    output_row.add_argument("--max-iter", type=int, default=None, help="solver iteration cap")
+    output_row.add_argument("--regularization", type=float, default=None, help="override the capture L2 coefficient")
     return parser
 
 
@@ -294,6 +307,10 @@ def main(argv: list[str] | None = None) -> int:
             from kilix_llm_lab.weight import run_weight
 
             return run_weight(args)
+        if args.command == "output-row":
+            from kilix_llm_lab.output_row import run_output_row
+
+            return run_output_row(args)
         pairs = _load_pairs(args.pairs) if args.command == "means" and args.pairs else None
         if args.command == "sae":
             return _run_sae(args)

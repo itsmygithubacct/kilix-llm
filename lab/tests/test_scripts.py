@@ -77,6 +77,8 @@ class LabScriptTests(unittest.TestCase):
             "rank",
             "weight",
             "weight-space column",
+            "output-row",
+            "squared-hinge edit of one output row",
             "distinctive-word",
             "catalog",
             "bench",

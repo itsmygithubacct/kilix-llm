@@ -18,7 +18,9 @@ fetched by the model commands into the Hugging Face cache.
 | `src/kilix_llm_lab/algebra.py` | Means, paired tails, aligned-neuron scores, sparsify, `P = I - r rᵀ`, KL |
 | `src/kilix_llm_lab/edit.py` | Forward hook, neuron push, in-place abliteration |
 | `src/kilix_llm_lab/weight.py` | Column remove, scale, and zero on one writing matrix |
+| `src/kilix_llm_lab/output_row.py` | Squared-hinge edit of one output row, with sealed Ask ids |
 | `docs/weight-space.md` | Command reference for those column edits |
+| `docs/output-row.md` | Command reference for the Ask output-row edit |
 | `src/kilix_llm_lab/collect.py` | Masked residual means, paired residual means, neuron means, prompt KL, greedy generation |
 | `src/kilix_llm_lab/measure.py` | Lexicon mood, fact-substring hits, topic-and-target success |
 | `src/kilix_llm_lab/rank.py` | Distinctive-word mass of sweep generations against random-direction controls |
@@ -109,7 +111,10 @@ letter-words are distinct.
 
 Column edits on one writing matrix are a separate operation from
 abliteration. `remove`, `scale`, and `zero` are documented in
-[docs/weight-space.md](docs/weight-space.md).
+[docs/weight-space.md](docs/weight-space.md). An Ask output row is another
+edit: [docs/output-row.md](docs/output-row.md) solves one `output.weight`
+row from frozen activations and refuses sealed fresh, operational, and
+held-out ids. The parent model is copied, not opened for writing.
 
 ```sh
 lab/scripts/lab.sh weight --matrix rows.json --op remove --direction 1,0 --columns 0
@@ -175,6 +180,8 @@ and it is not tokens per second.
 | `control` | Random-direction control. Pass the neuron's effect and each control effect. The neuron wins only when it beats every control. Directions used as controls are scaled to the same L2 as the push. |
 | `rank` | Distinctive-word mass. Reads a sweep or catalog JSONL (`kind`, `index`, `prompt`, `text`) and ranks units by words that are over-represented against the average unit. `null_pct` is the share of random-direction controls with a lower mass. No checkpoint. |
 | `catalog` | Bounded catalog. Pushes the indexes and strengths you name, plus matched random directions, on "Who are you?", "Write a snake game in Python.", "Describe the color orange.", and "Write whatever you like." `--stand-in` records those generations without a checkpoint. It does not sweep all 9,216 neurons. `--generated-only` pushes on decode steps. |
+| `weight` | Column edit. Remove a direction from chosen columns, or scale or zero those columns. `--matrix` edits JSON and does not load a checkpoint. Embeddings, `lm_head`, and a final norm are refused. |
+| `output-row` | Squared-hinge edit of one output row from frozen activations. Sealed Ask ids are refused. `--parent-gguf` is read only and `--output` must be a new file. |
 | `bench` | Greedy answers before and after one weight edit. |
 
 From the repository root, after `lab/scripts/uv-venv.sh`:

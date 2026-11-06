@@ -19,7 +19,7 @@ the check accepts it. Post-training checkpoints of this size tend to answer
 in a narrower assistant voice. The base id is the better bed for a neuron
 push that should show varied behavior.
 
-The host command list is `lab/scripts/lab.sh` with no arguments: difference of means (`means`), hook steering (`steer`), abliteration (`abliterate`), weight-space column edits (`weight`), neuron push (`neuron`), the random-direction control (`control`), and the bounded catalog (`catalog`). The score is how the answer changes. `weight` can edit a JSON matrix with no checkpoint.
+The host command list is `lab/scripts/lab.sh` with no arguments: difference of means (`means`), hook steering (`steer`), abliteration (`abliterate`), weight-space column edits (`weight`), the Ask output-row edit (`output-row`), neuron push (`neuron`), the random-direction control (`control`), and the bounded catalog (`catalog`). The score is how the answer changes. `weight` can edit a JSON matrix with no checkpoint.
 
 ## Environment
 
