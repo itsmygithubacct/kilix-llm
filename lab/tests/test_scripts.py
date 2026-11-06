@@ -41,6 +41,7 @@ class LabScriptTests(unittest.TestCase):
         text = (LAB / "scripts" / "uv-venv.sh").read_text(encoding="utf-8")
         self.assertIn("uv venv --python 3.12", text)
         self.assertIn("uv pip install", text)
+        self.assertIn("numpy", text)
         self.assertIn("KILIX_LLM_LAB_VENV", text)
         self.assertIn("KILIX_LLM_TORCH_INDEX", text)
 

@@ -58,8 +58,9 @@ The manifest does not include the correction vector. `--write-correction`
 writes it to a new file. A failed solve does not write that file and does
 not write a model. The command exits 1 when the solver does not converge.
 
-This path uses system Python. It does not create the lab virtual environment
-and it does not download a model. An `.npz` capture needs numpy.
+This path uses the lab virtual environment from `lab/scripts/uv-venv.sh`,
+which provides torch and numpy. It does not download a model. An `.npz`
+capture and a quantized row write both use that numpy.
 
 ## A new model file
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Create the lab virtual environment with uv and install torch plus transformers.
+# Create the lab virtual environment with uv and install torch, numpy, and transformers.
 #
 # The launcher does not use this environment. Model commands and the bench do.
 # Re-running is safe: uv keeps an existing environment and skips packages that
@@ -29,5 +29,5 @@ else
   printf 'kilix-llm lab: reusing %s\n' "$VENV" >&2
 fi
 uv pip install --python "$VENV/bin/python" torch --index-url "$TORCH_INDEX"
-uv pip install --python "$VENV/bin/python" transformers
+uv pip install --python "$VENV/bin/python" numpy transformers
 printf 'kilix-llm lab: ready %s\n' "$VENV/bin/python" >&2

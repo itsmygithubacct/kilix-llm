@@ -120,8 +120,9 @@ case "$command" in
     "$REPO_DIR/lab/scripts/uv-venv.sh"
     exec "$VENV/bin/python" "$REPO_DIR/lab/projects/qwen3_0_6b/run.py" weight "$@" ;;
   output-row)
+    "$REPO_DIR/lab/scripts/uv-venv.sh"
     export PYTHONPATH="$REPO_DIR/lab/src${PYTHONPATH:+:$PYTHONPATH}"
-    exec python3 "$REPO_DIR/lab/projects/qwen3_0_6b/run.py" output-row "$@" ;;
+    exec "$VENV/bin/python" "$REPO_DIR/lab/projects/qwen3_0_6b/run.py" output-row "$@" ;;
   catalog)
     stand_in=0
     for arg in "$@"; do

@@ -47,7 +47,7 @@ lab/scripts/uv-venv.sh
 ```
 
 That runs `uv venv --python 3.12` when the environment does not exist yet,
-then `uv pip install` for torch and transformers. If `bin/python` is already
+then `uv pip install` for torch, numpy, and transformers. If `bin/python` is already
 there, the script reuses it and only installs what is missing. Replacing an
 environment is `rm -rf` on that directory, then running the script again.
 `uv venv` itself refuses to overwrite an existing environment. The default
