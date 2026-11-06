@@ -320,8 +320,15 @@ def execute(aliases: list[str], suite_path: Path, models_path: Path) -> dict:
         futures = {pool.submit(probe, connection, models, suite): alias for alias, connection in connections.items()}
         for future in as_completed(futures):
             alias = futures[future]
-            rates[alias] = future.result()
+            try:
+                rates[alias] = future.result()
+            except (LabError, OSError, subprocess.TimeoutExpired) as error:
+                print(f"probe {alias} failed: {error}", flush=True)
+                continue
             print(f"probe {alias} {rates[alias]}", flush=True)
+    rates = {alias: row for alias, row in rates.items() if row}
+    if not rates:
+        raise LabError("no machine produced a timing")
     jobs = [{"id": item["id"], "model": model["id"]} for model in models["models"] for item in suite["items"]]
     plan = assign(jobs, rates)
     grouped: dict[str, list[dict]] = {alias: [] for alias in connections}
