@@ -1,6 +1,8 @@
 # kilix-llm lab
 
-Read and edit a local transformer without fine-tuning. The work is difference
+Read and edit a local transformer. Edit commands do not fine-tune.
+`train` prepares a corpus you supply and runs vendored `llama-finetune`.
+The work is difference
 of means, a removable forward hook, abliteration of the matrices that write
 the residual stream, and MLP neuron reads. The llama.cpp launcher above this
 directory does not import the lab. On Kilix 0.2.3 the command is
@@ -19,15 +21,18 @@ fetched by the model commands into the Hugging Face cache.
 | `src/kilix_llm_lab/edit.py` | Forward hook, neuron push, in-place abliteration |
 | `src/kilix_llm_lab/weight.py` | Column remove, scale, and zero on one writing matrix |
 | `src/kilix_llm_lab/output_row.py` | Squared-hinge edit of one output row, with sealed Ask ids |
+| `src/kilix_llm_lab/corpus.py` | Join a caller-supplied corpus into one UTF-8 text file |
+| `src/kilix_llm_lab/train.py` | Plan and run vendored `llama-finetune` on that file |
 | `docs/weight-space.md` | Command reference for those column edits |
 | `docs/output-row.md` | Command reference for the Ask output-row edit |
+| `docs/train.md` | Command reference for corpus training with `llama-finetune` |
 | `src/kilix_llm_lab/collect.py` | Masked residual means, paired residual means, neuron means, prompt KL, greedy generation |
 | `src/kilix_llm_lab/measure.py` | Lexicon mood, fact-substring hits, topic-and-target success |
 | `src/kilix_llm_lab/rank.py` | Distinctive-word mass of sweep generations against random-direction controls |
 | `src/kilix_llm_lab/qwen.py` | `o_proj` and `down_proj`, and the 0.6B shape check |
 | `src/kilix_llm_lab/texts.py` | Small happy/sad, tomato/other, and fact sets |
 | `src/kilix_llm_lab/runner.py` | Load a checkpoint and run one edit |
-| `src/kilix_llm_lab/cli.py` | `means`, `steer`, `abliterate`, `neuron`, `control`, `rank`, `catalog` |
+| `src/kilix_llm_lab/cli.py` | `means`, `steer`, `abliterate`, `neuron`, `train`, `control`, `rank`, `catalog` |
 | `src/kilix_llm_lab/catalog.py` | Bounded neuron catalog and its stand-in |
 | `scripts/lab.sh` | `kilix llm lab` dispatcher. No arguments lists the commands |
 | `scripts/uv-venv.sh` | Create the uv virtual environment |
@@ -39,8 +44,10 @@ fetched by the model commands into the Hugging Face cache.
 
 ## Virtual environment
 
-Model commands use a virtual environment created by uv. They do not use
-`python -m venv`.
+Model commands that load a Hugging Face checkpoint use a virtual environment
+created by uv. They do not use `python -m venv`. `train` does not call that
+script: its trainer is the `llama-finetune` binary, and the script's default
+torch index is CPU, which replaces a CUDA torch.
 
 ```sh
 lab/scripts/uv-venv.sh
@@ -182,6 +189,7 @@ and it is not tokens per second.
 | `catalog` | Bounded catalog. Pushes the indexes and strengths you name, plus matched random directions, on "Who are you?", "Write a snake game in Python.", "Describe the color orange.", and "Write whatever you like." `--stand-in` records those generations without a checkpoint. It does not sweep all 9,216 neurons. `--generated-only` pushes on decode steps. |
 | `weight` | Column edit. Remove a direction from chosen columns, or scale or zero those columns. `--matrix` edits JSON and does not load a checkpoint. Embeddings, `lm_head`, and a final norm are refused. |
 | `output-row` | Squared-hinge edit of one output row from frozen activations. Sealed Ask ids are refused. `--parent-gguf` is read only and `--output` must be a new file. |
+| `train` | Prepare a corpus you supply and, with `--run`, execute vendored `llama-finetune` on an FP32 GGUF. Without `--run` it writes the text file and the argument list. See [docs/train.md](docs/train.md). |
 | `bench` | Greedy answers before and after one weight edit. |
 
 From the repository root, after `lab/scripts/uv-venv.sh`:

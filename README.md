@@ -238,7 +238,7 @@ The suite does not compile llama.cpp and does not download the GGUF.
 
 ## Lab
 
-[lab/](lab/README.md) is weight editing and measurement: residual directions, forward-hook steering, abliteration of the matrices that write the residual stream, [column-scoped weight-space edits](lab/docs/weight-space.md), an [Ask output-row edit](lab/docs/output-row.md), and MLP neuron reads. It is not part of `make all` or `make test`. `make lab-test` runs that suite without a model download. `lab/scripts/lab.sh` with no arguments lists every edit command. On Kilix 0.2.3, `kilix llm lab` is that entry. The score is how the answer changes, not download time or tokens per second.
+[lab/](lab/README.md) is weight editing and measurement: residual directions, forward-hook steering, abliteration of the matrices that write the residual stream, [column-scoped weight-space edits](lab/docs/weight-space.md), an [Ask output-row edit](lab/docs/output-row.md), and MLP neuron reads. [`train`](lab/docs/train.md) prepares a corpus you supply and runs vendored `llama-finetune`; it is not an answer-change score. The lab is not part of `make all` or `make test`. `make lab-test` runs that suite without a model download. `lab/scripts/lab.sh` with no arguments lists every command. On Kilix 0.2.3, `kilix llm lab` is that entry. The score for an edit is how the answer changes, not download time or tokens per second.
 
 Model commands use a uv virtual environment from [lab/scripts/uv-venv.sh](lab/scripts/uv-venv.sh). The first project, [lab/projects/qwen3_0_6b](lab/projects/qwen3_0_6b/README.md), reruns those methods on Qwen3-0.6B. [lab/scripts/bench-qwen3-0.6b.sh](lab/scripts/bench-qwen3-0.6b.sh) compares answers before and after one weight edit.
 

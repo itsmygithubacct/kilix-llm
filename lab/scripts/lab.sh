@@ -43,6 +43,7 @@ usage: kilix llm lab COMMAND [ARGS...]
   rank        rank recorded generations by distinctive-word mass
   weight      weight-space column edit: remove a direction, scale, or zero
   output-row  squared-hinge edit of one output row from frozen activations
+  train       prepare a text corpus and run llama-finetune
   catalog     bounded catalog of chosen neurons plus matched random directions
   story       steer one layer and score how the answer changes
   neurons     contrast MLP neurons on one layer
@@ -126,6 +127,11 @@ case "$command" in
     "$REPO_DIR/lab/scripts/uv-venv.sh"
     export PYTHONPATH="$REPO_DIR/lab/src${PYTHONPATH:+:$PYTHONPATH}"
     exec "$VENV/bin/python" "$REPO_DIR/lab/projects/qwen3_0_6b/run.py" output-row "$@" ;;
+  train)
+    # llama-finetune is the vendored binary. uv-venv.sh installs a torch wheel
+    # and its default index is CPU, which would replace a CUDA torch.
+    export PYTHONPATH="$REPO_DIR/lab/src${PYTHONPATH:+:$PYTHONPATH}"
+    exec python3 "$REPO_DIR/lab/projects/qwen3_0_6b/run.py" train "$@" ;;
   catalog)
     stand_in=0
     for arg in "$@"; do

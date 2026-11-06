@@ -26,7 +26,7 @@ from kilix_llm_lab.texts import NEUTRAL_PROMPT, WHO_PROMPT
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="kilix-llm-lab",
-        description="Edit and measure Qwen3-0.6B without fine-tuning.",
+        description="Edit and measure a local checkpoint. train prepares a corpus for llama-finetune.",
     )
     parser.add_argument("--version", action="version", version=__version__)
     shared = argparse.ArgumentParser(add_help=False)
@@ -284,6 +284,28 @@ def build_parser() -> argparse.ArgumentParser:
     output_row.add_argument("--expected-sha256", default=None, help="sha256 the parent file must have")
     output_row.add_argument("--max-iter", type=int, default=None, help="solver iteration cap")
     output_row.add_argument("--regularization", type=float, default=None, help="override the capture L2 coefficient")
+
+    train = commands.add_parser(
+        "train",
+        help="prepare a text corpus and run llama-finetune",
+    )
+    train.add_argument("--corpus", required=True, help="text file, jsonl file, or directory you supply")
+    train.add_argument("--text-out", required=True, help="raw text file passed to llama-finetune --file")
+    train.add_argument("--model", required=True, help="FP32 GGUF to train")
+    train.add_argument("--output", default=None, help="new GGUF; default finetuned-model.gguf beside the text file")
+    train.add_argument("--run", action="store_true", help="replace this process with llama-finetune")
+    train.add_argument("--binary", default=None, help="llama-finetune executable")
+    train.add_argument("--ctx", type=int, default=512, help="context; 0 uses the model context")
+    train.add_argument("--batch", type=int, default=512)
+    train.add_argument("--ubatch", type=int, default=512)
+    train.add_argument("--gpu-layers", type=int, default=999, help="GPU layers; 999 asks for all of them")
+    train.add_argument("--epochs", type=int, default=2)
+    train.add_argument("--learning-rate", type=float, default=1e-5)
+    train.add_argument("--learning-rate-min", type=float, default=None)
+    train.add_argument("--decay-epochs", type=float, default=None)
+    train.add_argument("--val-split", type=float, default=0.05)
+    train.add_argument("--weight-decay", type=float, default=0.0)
+    train.add_argument("--optimizer", default="adamw", choices=("adamw", "sgd"))
     return parser
 
 
@@ -311,6 +333,10 @@ def main(argv: list[str] | None = None) -> int:
             from kilix_llm_lab.output_row import run_output_row
 
             return run_output_row(args)
+        if args.command == "train":
+            from kilix_llm_lab.train import run_train
+
+            return run_train(args)
         pairs = _load_pairs(args.pairs) if args.command == "means" and args.pairs else None
         if args.command == "sae":
             return _run_sae(args)
