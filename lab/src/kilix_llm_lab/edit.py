@@ -239,7 +239,9 @@ def intervene_head(layer, head: int, n_heads: int, op: str, amount: float = 0.0)
         raise LabError("a layer needs at least one attention head")
     if not 0 <= head < n_heads:
         raise LabError(f"head {head} is outside 0..{n_heads - 1}")
-    linear = layer.self_attn.o_proj
+    from kilix_llm_lab.qwen import mixer_linear
+
+    linear = mixer_linear(layer)
     handle = None
 
     def pre_hook(_module, args):
@@ -353,8 +355,10 @@ def abliterate(model, direction: Sequence[float], layers: Sequence[int]) -> list
 
 
 def linear_path(layer, linear) -> str:
-    if linear is layer.self_attn.o_proj:
-        return "self_attn.o_proj"
+    from kilix_llm_lab.qwen import mixer_linear, mixer_path
+
+    if linear is mixer_linear(layer):
+        return mixer_path(layer)
     if linear is layer.mlp.down_proj:
         return "mlp.down_proj"
     return "weight"

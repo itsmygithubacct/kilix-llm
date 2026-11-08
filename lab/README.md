@@ -23,16 +23,18 @@ fetched by the model commands into the Hugging Face cache.
 | `src/kilix_llm_lab/output_row.py` | Squared-hinge edit of one output row, with sealed Ask ids |
 | `src/kilix_llm_lab/corpus.py` | Join a caller-supplied corpus into one UTF-8 text file |
 | `src/kilix_llm_lab/train.py` | Plan and run vendored `llama-finetune` on that file |
+| `src/kilix_llm_lab/loops.py` | Loop onset and period in a thinking trace, and per-token copy targets |
+| `src/kilix_llm_lab/gguf_columns.py` | Exact zero and scale column edits on a copy of a Q8_0, F16, or F32 GGUF |
 | `docs/weight-space.md` | Command reference for those column edits |
 | `docs/output-row.md` | Command reference for the Ask output-row edit |
 | `docs/train.md` | Command reference for corpus training with `llama-finetune` |
 | `src/kilix_llm_lab/collect.py` | Masked residual means, paired residual means, neuron means, prompt KL, greedy generation |
 | `src/kilix_llm_lab/measure.py` | Lexicon mood, fact-substring hits, topic-and-target success |
 | `src/kilix_llm_lab/rank.py` | Distinctive-word mass of sweep generations against random-direction controls |
-| `src/kilix_llm_lab/qwen.py` | `o_proj` and `down_proj`, and the 0.6B shape check |
+| `src/kilix_llm_lab/qwen.py` | Mixer writers (`self_attn.o_proj`, or `linear_attn.out_proj` on a Qwen3.5 linear-attention layer), `down_proj`, and the 0.6B shape check |
 | `src/kilix_llm_lab/texts.py` | Small happy/sad, tomato/other, and fact sets |
 | `src/kilix_llm_lab/runner.py` | Load a checkpoint and run one edit |
-| `src/kilix_llm_lab/cli.py` | `means`, `steer`, `abliterate`, `neuron`, `train`, `control`, `rank`, `catalog` |
+| `src/kilix_llm_lab/cli.py` | `means`, `steer`, `abliterate`, `neuron`, `weight`, `train`, `control`, `rank`, `catalog`, `loops`, `gguf-columns` |
 | `src/kilix_llm_lab/catalog.py` | Bounded neuron catalog and its stand-in |
 | `scripts/lab.sh` | `kilix llm lab` dispatcher. No arguments lists the commands |
 | `scripts/uv-venv.sh` | Create the uv virtual environment |
@@ -125,6 +127,22 @@ held-out ids. The parent model is copied, not opened for writing.
 
 ```sh
 lab/scripts/lab.sh weight --matrix rows.json --op remove --direction 1,0 --columns 0
+```
+
+`loops` reads JSONL thinking traces and reports each row whose last
+`--window` characters occur `--copies` times or more: the period, the onset
+of the periodic run, and how many cycles it holds. `gguf-columns` copies a
+GGUF and zeroes or scales named columns of a writing matrix. In Q8_0 a zero
+writes quant 0 and a whole-block scale multiplies the block's float16 scale,
+so the edit is exact and every other byte is unchanged. The copy is read
+back and checked before the command returns. On qwen35 the writers are
+`blk.N.ffn_down`, `blk.N.attn_output`, and `blk.N.ssm_out`; their columns
+are in the Hugging Face order, one head slice per 256 (attention) or 128
+(GatedDeltaNet) columns.
+
+```sh
+lab/scripts/lab.sh loops --traces replies.jsonl
+lab/scripts/lab.sh gguf-columns --source parent.gguf --output child.gguf --edits edits.json
 ```
 
 ## Neurons from the steering video

@@ -36,12 +36,54 @@ def decoder_layers(model) -> list:
     return list(root_module(model).layers)
 
 
-def writing_linears(layer) -> list:
-    """Attention o_proj and MLP down_proj. Both map into hidden_size."""
+def layer_kind(layer) -> str:
+    """"full" for softmax attention, "linear" for a Qwen3.5 GatedDeltaNet layer."""
+    if getattr(layer, "self_attn", None) is not None:
+        return "full"
+    if getattr(layer, "linear_attn", None) is not None:
+        return "linear"
+    raise LabError("layer has neither self_attn nor linear_attn")
+
+
+def mixer_path(layer) -> str:
+    """Dotted path of the token mixer's writing matrix inside one layer."""
+    return "self_attn.o_proj" if layer_kind(layer) == "full" else "linear_attn.out_proj"
+
+
+def mixer_linear(layer):
+    """The token mixer's writing matrix: self_attn.o_proj, or linear_attn.out_proj on Qwen3.5.
+
+    Its forward input is one slice per head: attention heads on a full layer,
+    value heads on a linear layer.
+    """
     try:
-        return [layer.self_attn.o_proj, layer.mlp.down_proj]
+        if layer_kind(layer) == "full":
+            return layer.self_attn.o_proj
+        return layer.linear_attn.out_proj
     except AttributeError as error:
-        raise LabError("layer is missing self_attn.o_proj or mlp.down_proj") from error
+        raise LabError(f"layer is missing {mixer_path(layer)}") from error
+
+
+def mixer_heads(config, layer) -> int:
+    """Heads in the slice layout of mixer_linear(layer)'s input."""
+    kind = layer_kind(layer)
+    names = ("num_attention_heads",) if kind == "full" else ("linear_num_value_heads",)
+    for obj in (config, getattr(config, "text_config", None)):
+        if obj is None:
+            continue
+        for name in names:
+            count = getattr(obj, name, None)
+            if count:
+                return int(count)
+    raise LabError(f"config has no {names[0]} for a {kind} layer")
+
+
+def writing_linears(layer) -> list:
+    """Token-mixer output (o_proj or out_proj) and MLP down_proj. Both map into hidden_size."""
+    try:
+        return [mixer_linear(layer), layer.mlp.down_proj]
+    except AttributeError as error:
+        raise LabError(f"layer is missing {mixer_path(layer)} or mlp.down_proj") from error
 
 
 def neuron_linear(layer):

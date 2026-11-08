@@ -1,7 +1,8 @@
 """Column edits on one writing matrix.
 
-A column of mlp.down_proj or self_attn.o_proj is one input's contribution
-to the residual stream. Hugging Face stores the matrix as
+A column of mlp.down_proj or self_attn.o_proj (linear_attn.out_proj on a
+Qwen3.5 linear-attention layer) is one input's contribution to the residual
+stream. Hugging Face stores the matrix as
 (out_features, in_features). These edits change the loaded matrix only.
 
 remove subtracts scale * u (u · column) from each chosen column. u is
@@ -24,7 +25,7 @@ from collections.abc import Sequence
 
 from kilix_llm_lab import LabError
 
-WRITING_MODULES = ("down_proj", "o_proj")
+WRITING_MODULES = ("down_proj", "o_proj", "out_proj")
 REFUSED_LEAVES = ("embed_tokens", "lm_head", "norm")
 
 
@@ -132,7 +133,7 @@ def apply_weight_edit(
     weight = linear.weight
     if weight.ndim != 2 or not weight.dtype.is_floating_point:
         raise LabError("weight-space edits need a dense floating-point matrix")
-    name = f"layers.{index}.{_leaf_path(leaf)}"
+    name = f"layers.{index}.{_leaf_path(leaf, layers[index])}"
     with torch.no_grad():
         before = weight.detach().float().cpu().tolist()
         edited, report = edit_matrix(
@@ -153,17 +154,25 @@ def apply_weight_edit(
     return report
 
 
-def _leaf_path(leaf: str) -> str:
+def _leaf_path(leaf: str, layer=None) -> str:
+    """down_proj is the MLP's. o_proj and out_proj both name the token mixer's writer."""
     if leaf == "down_proj":
         return "mlp.down_proj"
-    return "self_attn.o_proj"
+    if layer is not None:
+        from kilix_llm_lab.qwen import mixer_path
+
+        return mixer_path(layer)
+    return "linear_attn.out_proj" if leaf == "out_proj" else "self_attn.o_proj"
 
 
 def _linear(layer, leaf: str):
+    """On a Qwen3.5 layer, o_proj and out_proj both resolve to that layer's mixer writer."""
+    from kilix_llm_lab.qwen import mixer_linear
+
     try:
         if leaf == "down_proj":
             return layer.mlp.down_proj
-        return layer.self_attn.o_proj
+        return mixer_linear(layer)
     except AttributeError as error:
         raise LabError(f"layer is missing {leaf}") from error
 

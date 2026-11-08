@@ -42,6 +42,8 @@ usage: kilix llm lab COMMAND [ARGS...]
   control     random-direction control: win only by beating every control
   rank        rank recorded generations by distinctive-word mass
   weight      weight-space column edit: remove a direction, scale, or zero
+  loops       find repeating tails in thinking traces
+  gguf-columns  copy a GGUF with exact column zero or scale edits
   output-row  squared-hinge edit of one output row from frozen activations
   train       prepare a text corpus and run llama-finetune
   catalog     bounded catalog of chosen neurons plus matched random directions
@@ -104,6 +106,9 @@ case "$command" in
     _install_4bit "$@"
     exec "$VENV/bin/python" "$REPO_DIR/lab/projects/qwen3_0_6b/run.py" "$command" "$@" ;;
   control|rank)
+    export PYTHONPATH="$REPO_DIR/lab/src${PYTHONPATH:+:$PYTHONPATH}"
+    exec python3 "$REPO_DIR/lab/projects/qwen3_0_6b/run.py" "$command" "$@" ;;
+  loops|gguf-columns)
     export PYTHONPATH="$REPO_DIR/lab/src${PYTHONPATH:+:$PYTHONPATH}"
     exec python3 "$REPO_DIR/lab/projects/qwen3_0_6b/run.py" "$command" "$@" ;;
   weight)

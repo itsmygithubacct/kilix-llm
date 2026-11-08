@@ -285,6 +285,25 @@ def build_parser() -> argparse.ArgumentParser:
     output_row.add_argument("--max-iter", type=int, default=None, help="solver iteration cap")
     output_row.add_argument("--regularization", type=float, default=None, help="override the capture L2 coefficient")
 
+    loops = commands.add_parser(
+        "loops",
+        help="find repeating tails in JSONL thinking traces",
+    )
+    loops.add_argument("--traces", nargs="+", required=True, help="JSONL files, one trace per line")
+    loops.add_argument("--field", default="reasoning", help="string field that holds the trace")
+    loops.add_argument("--window", type=int, default=600, help="tail characters that must repeat")
+    loops.add_argument("--copies", type=int, default=3, help="occurrences of the tail that make a loop")
+    loops.add_argument("--all", action="store_true", help="list every row, not only loops")
+
+    gguf_columns = commands.add_parser(
+        "gguf-columns",
+        help="copy a GGUF with exact column zero or scale edits",
+    )
+    gguf_columns.add_argument("--source", required=True, help="parent GGUF; never opened for writing")
+    gguf_columns.add_argument("--output", required=True, help="new GGUF path; must not exist")
+    gguf_columns.add_argument("--edits", required=True, help='JSON list of {"tensor", "op", "columns", "factor"?}')
+    gguf_columns.add_argument("--expected-sha256", default=None, help="sha256 the parent file must have")
+
     train = commands.add_parser(
         "train",
         help="prepare a text corpus and run llama-finetune",
@@ -333,6 +352,15 @@ def main(argv: list[str] | None = None) -> int:
             from kilix_llm_lab.output_row import run_output_row
 
             return run_output_row(args)
+        if args.command == "loops":
+            from kilix_llm_lab.loops import run_loops
+
+            return run_loops(args)
+        if args.command == "gguf-columns":
+            from kilix_llm_lab.gguf_columns import main as gguf_columns_main
+
+            extra = ["--sha256", args.expected_sha256] if args.expected_sha256 else []
+            return gguf_columns_main([args.source, args.output, args.edits, *extra])
         if args.command == "train":
             from kilix_llm_lab.train import run_train
 
