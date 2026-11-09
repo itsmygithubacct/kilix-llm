@@ -44,6 +44,7 @@ usage: kilix llm lab COMMAND [ARGS...]
   weight      weight-space column edit: remove a direction, scale, or zero
   loops       find repeating tails in thinking traces
   gguf-columns  copy a GGUF with exact column zero or scale edits
+  gguf-tensors  copy a GGUF with whole tensors replaced and requantized
   output-row  squared-hinge edit of one output row from frozen activations
   train       prepare a text corpus and run llama-finetune
   catalog     bounded catalog of chosen neurons plus matched random directions
@@ -108,7 +109,7 @@ case "$command" in
   control|rank)
     export PYTHONPATH="$REPO_DIR/lab/src${PYTHONPATH:+:$PYTHONPATH}"
     exec python3 "$REPO_DIR/lab/projects/qwen3_0_6b/run.py" "$command" "$@" ;;
-  loops|gguf-columns)
+  loops|gguf-columns|gguf-tensors)
     export PYTHONPATH="$REPO_DIR/lab/src${PYTHONPATH:+:$PYTHONPATH}"
     exec python3 "$REPO_DIR/lab/projects/qwen3_0_6b/run.py" "$command" "$@" ;;
   weight)

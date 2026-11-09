@@ -82,6 +82,8 @@ class LabScriptTests(unittest.TestCase):
             "repeating tails",
             "gguf-columns",
             "exact column",
+            "gguf-tensors",
+            "requantized",
             "output-row",
             "squared-hinge edit of one output row",
             "train",

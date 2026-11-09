@@ -25,6 +25,7 @@ fetched by the model commands into the Hugging Face cache.
 | `src/kilix_llm_lab/train.py` | Plan and run vendored `llama-finetune` on that file |
 | `src/kilix_llm_lab/loops.py` | Loop onset and period in a thinking trace, and per-token copy targets |
 | `src/kilix_llm_lab/gguf_columns.py` | Exact zero and scale column edits on a copy of a Q8_0, F16, or F32 GGUF |
+| `src/kilix_llm_lab/gguf_tensors.py` | Whole-tensor replacement from `.npy`, requantized, with a base round-trip check |
 | `docs/weight-space.md` | Command reference for those column edits |
 | `docs/output-row.md` | Command reference for the Ask output-row edit |
 | `docs/train.md` | Command reference for corpus training with `llama-finetune` |
@@ -34,7 +35,7 @@ fetched by the model commands into the Hugging Face cache.
 | `src/kilix_llm_lab/qwen.py` | Mixer writers (`self_attn.o_proj`, or `linear_attn.out_proj` on a Qwen3.5 linear-attention layer), `down_proj`, and the 0.6B shape check |
 | `src/kilix_llm_lab/texts.py` | Small happy/sad, tomato/other, and fact sets |
 | `src/kilix_llm_lab/runner.py` | Load a checkpoint and run one edit |
-| `src/kilix_llm_lab/cli.py` | `means`, `steer`, `abliterate`, `neuron`, `weight`, `train`, `control`, `rank`, `catalog`, `loops`, `gguf-columns` |
+| `src/kilix_llm_lab/cli.py` | `means`, `steer`, `abliterate`, `neuron`, `weight`, `train`, `control`, `rank`, `catalog`, `loops`, `gguf-columns`, `gguf-tensors` |
 | `src/kilix_llm_lab/catalog.py` | Bounded neuron catalog and its stand-in |
 | `scripts/lab.sh` | `kilix llm lab` dispatcher. No arguments lists the commands |
 | `scripts/uv-venv.sh` | Create the uv virtual environment |
@@ -143,6 +144,16 @@ are in the Hugging Face order, one head slice per 256 (attention) or 128
 ```sh
 lab/scripts/lab.sh loops --traces replies.jsonl
 lab/scripts/lab.sh gguf-columns --source parent.gguf --output child.gguf --edits edits.json
+```
+
+`gguf-tensors` carries an edit made on Hugging Face weights into a GGUF. It
+quantizes each new tensor from a `.npy` file and writes it over the old one in
+a copy. Given the unedited tensor as `base`, it first quantizes that and
+refuses unless the result equals the parent's bytes, so the copy differs from
+the parent only where the edit does.
+
+```sh
+lab/scripts/lab.sh gguf-tensors --source parent.gguf --output child.gguf --replace replace.json
 ```
 
 ## Neurons from the steering video

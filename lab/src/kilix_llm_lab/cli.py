@@ -304,6 +304,16 @@ def build_parser() -> argparse.ArgumentParser:
     gguf_columns.add_argument("--edits", required=True, help='JSON list of {"tensor", "op", "columns", "factor"?}')
     gguf_columns.add_argument("--expected-sha256", default=None, help="sha256 the parent file must have")
 
+    gguf_tensors = commands.add_parser(
+        "gguf-tensors",
+        help="copy a GGUF with whole tensors replaced from .npy files, requantized",
+    )
+    gguf_tensors.add_argument("--source", required=True, help="parent GGUF; never opened for writing")
+    gguf_tensors.add_argument("--output", required=True, help="new GGUF path; must not exist")
+    gguf_tensors.add_argument("--replace", required=True,
+                              help='JSON list of {"tensor", "values": NPY, "base"?: NPY that must round-trip}')
+    gguf_tensors.add_argument("--expected-sha256", default=None, help="sha256 the parent file must have")
+
     train = commands.add_parser(
         "train",
         help="prepare a text corpus and run llama-finetune",
@@ -361,6 +371,10 @@ def main(argv: list[str] | None = None) -> int:
 
             extra = ["--sha256", args.expected_sha256] if args.expected_sha256 else []
             return gguf_columns_main([args.source, args.output, args.edits, *extra])
+        if args.command == "gguf-tensors":
+            from kilix_llm_lab.gguf_tensors import run_gguf_tensors
+
+            return run_gguf_tensors(args)
         if args.command == "train":
             from kilix_llm_lab.train import run_train
 
