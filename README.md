@@ -12,11 +12,11 @@ repository's weight-edit lab from a checkout you provide (`KILIX_LLM_HOME`, a
 ## What it does
 
 - Builds the vendored llama.cpp for CPU or Vulkan and runs one-shot prompts or
-  an OpenAI-compatible server on loopback.
+  a chat-completions HTTP server on loopback (`kilix-llm serve`).
 - Downloads catalogued GGUF weights with resume, size and SHA-256 checks; never
   ships weights.
-- Runs a persistent QEMU guest for the Pi coding tools, served by the host GPU
-  model ([docs/pi-vm.md](docs/pi-vm.md)).
+- Runs a persistent QEMU guest for a terminal coding agent (`kilix-llm vm pi`),
+  served by the host GPU model ([docs/pi-vm.md](docs/pi-vm.md)).
 - Answers Kilix documentation questions through a prepared kilix-help-llm
   checkout (`ask-help`, experimental).
 - Carries a separate weight-edit and measurement lab under [lab/](lab/README.md).
@@ -112,7 +112,7 @@ Model commands use a uv virtual environment from [lab/scripts/uv-venv.sh](lab/sc
 ## Documentation
 
 - [docs/gpu-model.md](docs/gpu-model.md) — the 4B Vulkan profile, build dependencies and validation results
-- [docs/pi-vm.md](docs/pi-vm.md) — the persistent QEMU guest, shared folders and Pi sessions
+- [docs/pi-vm.md](docs/pi-vm.md) — the persistent QEMU guest, shared folders and agent sessions
 - [docs/help-module.md](docs/help-module.md) — `ask-help` with kilix-help-llm runs and the calibrated path
 - [docs/vendoring.md](docs/vendoring.md) — moving the llama.cpp pin and carrying patches
 - [docs/checkpoint-training-api.md](docs/checkpoint-training-api.md) — explicit checkpoint and supervised-target APIs
