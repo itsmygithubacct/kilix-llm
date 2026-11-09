@@ -41,6 +41,23 @@ compute buffers, and desktop; file size alone does not establish runtime fit.
 ./kilix-llm serve --model-id qwen3.5-4b --device Vulkan1
 ```
 
+`qwen-0.8b-no-loop-02` is Qwen3.5-0.8B Q8_0 (833,592,416 bytes) with one
+third of a published weight edit applied, to reduce thinking-mode loops. The
+edit removes a direction from 64 `ffn_down` columns in each of layers 15 and
+19. It is Apache-2.0, modified from Qwen/Qwen3.5-0.8B. The edit is adapted
+from CC BY 4.0 material; the release's model card gives the attribution and
+all results. It runs with the same GPU profile as the 4B. With thinking on
+at temperature 0.7 / top_p 0.8, on fresh seeds, loops fell from 23 of 80
+replies to 10 (paired p = 0.004). GSM8K accuracy stayed level. At the Qwen
+card's 1.0 / 0.95 it made no difference, so `--think` keeps 0.7 / 0.8 for this
+entry. With thinking off neither model looped.
+
+```sh
+./kilix-llm pull --model-id qwen-0.8b-no-loop-02
+./kilix-llm serve --model-id qwen-0.8b-no-loop-02 --device Vulkan1 --think
+./kilix-llm chat --model-id qwen-0.8b-no-loop-02 --gpu-layers 0 --think
+```
+
 Vulkan build dependencies on Debian/Ubuntu are `libvulkan-dev`, `glslc`, and
 `spirv-headers`, in addition to CMake, a C++ compiler, and rsync. Vulkan can
 use Mesa NVK on supported NVIDIA hardware without installing a CUDA driver.
@@ -151,10 +168,11 @@ the cause of the slowdown from the earlier short benchmark is unresolved.
 | `kilix-llm vendor` | print the llama.cpp pin |
 | `kilix-llm build [--backend vulkan]` | compile the CPU or Vulkan runtime |
 | `kilix-llm devices` | list GPU names for `--device` |
-| `kilix-llm pull [--model-id qwen3.5-4b]` | download a catalogued GGUF (resumable) |
+| `kilix-llm pull [--model-id ID]` | download a catalogued GGUF (resumable): `qwen3.8-27b`, `qwen3.5-4b`, `qwen-0.8b-no-loop-02` |
 | `kilix-llm verify` | size + sha256 of the weights |
 | `kilix-llm path` | where the weights resolve |
 | `kilix-llm run PROMPT` | one shot via `llama-cli` |
+| `kilix-llm chat [--think]` | interactive conversation via `llama-cli` (`/clear`, `/regen`, `/exit`) |
 | `kilix-llm serve` | `llama-server` on loopback |
 | `kilix-llm vm setup/start/pi/shell/status/stop` | persistent QEMU guest, Pi sessions, and host GPU server |
 | `kilix-llm ask-help` | experimental document help through explicit local answer/ranking runs |

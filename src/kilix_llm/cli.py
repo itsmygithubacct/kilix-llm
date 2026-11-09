@@ -53,7 +53,7 @@ def common_runtime_args(args: argparse.Namespace, ctx_default: int) -> list[str]
         argv.extend(["--split-mode", "none", "--fit", "off", "-fa", "on"])
         if args.device:
             argv.extend(["--device", args.device])
-            if args.model_id == "qwen3.5-4b" and ngl >= 99:
+            if models.is_qwen35(args.model_id) and ngl >= 99:
                 # llama.cpp otherwise keeps the input embedding on CPU even at full offload.
                 argv.extend(["--override-tensor", rf"^token_embd\.weight$={args.device}"])
     else:
@@ -62,9 +62,9 @@ def common_runtime_args(args: argparse.Namespace, ctx_default: int) -> list[str]
 
 
 def sampling_args(args: argparse.Namespace) -> list[str]:
-    argv = list(models.THINK_SAMPLING if args.think else models.SAMPLING)
-    if args.model_id == "qwen3.5-4b":
-        argv.extend(["--min-p", "0", "--presence-penalty", "1.5", "--repeat-penalty", "1"])
+    argv = models.sampling(args.model_id, args.think)
+    if models.is_qwen35(args.model_id):
+        argv.extend(models.QWEN35_SAMPLING)
     return argv
 
 
@@ -101,7 +101,10 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         f"{mem['MemTotal'] // (1024 ** 3)} GiB total"
     )
     print(f"model:      {model}")
-    print("offload:    qwen3.8-27b: CPU/RAM only (-ngl 0); qwen3.5-4b: all GPU layers")
+    print("offload:    " + "; ".join(
+        f"{model_id}: " + ("all GPU layers" if record["n_gpu_layers"] else "CPU/RAM only (-ngl 0)")
+        for model_id, record in models.MODELS.items()
+    ))
     for model_id in models.MODELS:
         if model_id == models.DEFAULT_MODEL_ID:
             continue
@@ -204,14 +207,8 @@ def cmd_pull(args: argparse.Namespace) -> int:
     return 0
 
 
-def run_argv(args: argparse.Namespace, cli: str, model: str) -> list[str]:
-    """The llama-cli command line for one prompt.
-
-    `-st` is what makes it one shot. The conversation pair `-cnv`/`-no-cnv`
-    belongs to llama-completion at the pinned commit, so llama-cli rejects it
-    outright; `-st` is llama-cli's own single-turn flag and is not interactive
-    when the turn arrives as `-p`.
-    """
+def cli_argv(args: argparse.Namespace, cli: str, model: str, turn: list[str]) -> list[str]:
+    """llama-cli with the catalogue runtime and sampler; `turn` decides one shot or chat."""
     record = models.spec(args.model_id)
     argv = [
         cli,
@@ -220,11 +217,7 @@ def run_argv(args: argparse.Namespace, cli: str, model: str) -> list[str]:
         *common_runtime_args(args, record["ctx"]),
         *sampling_args(args),
         "--jinja",
-        "-n",
-        str(args.n_predict),
-        "-p",
-        args.prompt,
-        "-st",
+        *turn,
     ]
     argv.extend(["--reasoning", "on" if args.think else "off"])
     if gpu_layers(args):
@@ -232,7 +225,29 @@ def run_argv(args: argparse.Namespace, cli: str, model: str) -> list[str]:
     return argv
 
 
-def cmd_run(args: argparse.Namespace) -> int:
+def run_argv(args: argparse.Namespace, cli: str, model: str) -> list[str]:
+    """The llama-cli command line for one prompt.
+
+    `-st` is what makes it one shot. The conversation pair `-cnv`/`-no-cnv`
+    belongs to llama-completion at the pinned commit, so llama-cli rejects it
+    outright; `-st` is llama-cli's own single-turn flag and is not interactive
+    when the turn arrives as `-p`.
+    """
+    return cli_argv(args, cli, model, ["-n", str(args.n_predict), "-p", args.prompt, "-st"])
+
+
+def chat_argv(args: argparse.Namespace, cli: str, model: str) -> list[str]:
+    """The llama-cli command line for an interactive conversation.
+
+    Without `-p` and `-st`, llama-cli at the pinned commit reads turns from the
+    terminal and keeps the history (`/clear`, `/regen`, `/exit`). Replies are
+    bounded by the context unless `-n` caps each one.
+    """
+    turn = [] if args.n_predict is None else ["-n", str(args.n_predict)]
+    return cli_argv(args, cli, model, turn)
+
+
+def exec_cli(args: argparse.Namespace, build) -> int:
     try:
         runtime.require_vendor()
         model = models.resolve(args.model_id, args.model)
@@ -243,9 +258,17 @@ def cmd_run(args: argparse.Namespace) -> int:
     except (models.ModelError, runtime.RuntimeError_, pin.PinError) as error:
         handle(error)
         return 1
-    argv = run_argv(args, cli, model)
+    argv = build(args, cli, model)
     os.execv(argv[0], argv)
     return 1
+
+
+def cmd_run(args: argparse.Namespace) -> int:
+    return exec_cli(args, run_argv)
+
+
+def cmd_chat(args: argparse.Namespace) -> int:
+    return exec_cli(args, chat_argv)
 
 
 def serve_argv(args: argparse.Namespace, server: str, model: str) -> list[str]:
@@ -266,7 +289,7 @@ def serve_argv(args: argparse.Namespace, server: str, model: str) -> list[str]:
         "--cache-type-v",
         "q8_0",
     ]
-    if args.model_id == "qwen3.5-4b":
+    if models.is_qwen35(args.model_id):
         argv.extend([*sampling_args(args), "--parallel", "1"])
         argv.extend(["--reasoning", "on" if args.think else "off"])
     elif args.think:
@@ -409,6 +432,14 @@ def build_parser() -> argparse.ArgumentParser:
     run_p.add_argument("--think", action="store_true", help="enable thinking mode")
     run_p.add_argument("prompt")
     run_p.set_defaults(func=cmd_run)
+
+    chat_p = sub.add_parser("chat", help="interactive conversation in the terminal")
+    add_model_args(chat_p)
+    add_runtime_args(chat_p)
+    chat_p.add_argument("-n", "--n-predict", type=int, default=None,
+                        help="cap each reply (default: bounded by the context)")
+    chat_p.add_argument("--think", action="store_true", help="enable thinking mode")
+    chat_p.set_defaults(func=cmd_chat)
 
     serve_p = sub.add_parser("serve", help="OpenAI-compatible llama-server on loopback")
     add_model_args(serve_p)

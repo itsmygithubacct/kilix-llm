@@ -9,7 +9,7 @@ import unittest
 from unittest import mock
 
 from kilix_llm import models, paths, runtime
-from kilix_llm.cli import build_parser, gpu_layers, run_argv, runtime_backend, serve_argv
+from kilix_llm.cli import build_parser, chat_argv, gpu_layers, run_argv, runtime_backend, serve_argv
 
 
 REPO = paths.REPO_DIR
@@ -129,6 +129,66 @@ class ArgvTests(unittest.TestCase):
         argv = serve_argv(args, "llama-server", "model.gguf")
         self.assertEqual(argv[argv.index("--reasoning") + 1], "on")
 
+    def test_no_loop_model_uses_the_qwen35_gpu_profile(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["serve", "--model-id", "qwen-0.8b-no-loop-02"])
+        argv = serve_argv(args, "llama-server", "model.gguf")
+        for flag, value in (("-ngl", "99"), ("--parallel", "1"), ("--reasoning", "off"),
+                            ("--temp", "0.7"), ("--presence-penalty", "1.5"), ("--min-p", "0")):
+            self.assertEqual(argv[argv.index(flag) + 1], value)
+        args.think = True
+        argv = serve_argv(args, "llama-server", "model.gguf")
+        self.assertEqual(argv[argv.index("--reasoning") + 1], "on")
+        # Thinking keeps the sampler the loop reduction was measured with.
+        for flag, value in (("--temp", "0.7"), ("--top-p", "0.80"), ("--presence-penalty", "1.5")):
+            self.assertEqual(argv[argv.index(flag) + 1], value)
+        four_b = parser.parse_args(["serve", "--model-id", "qwen3.5-4b", "--think"])
+        argv = serve_argv(four_b, "llama-server", "model.gguf")
+        self.assertEqual(argv[argv.index("--temp") + 1], "1.0")
+        run_args = parser.parse_args(["run", "--model-id", "qwen-0.8b-no-loop-02", "hi"])
+        run_args.device = "Vulkan0"
+        argv = run_argv(run_args, "llama-cli", "model.gguf")
+        self.assertEqual(argv[argv.index("--override-tensor") + 1], r"^token_embd\.weight$=Vulkan0")
+        self.assertEqual(argv[argv.index("--presence-penalty") + 1], "1.5")
+
+    def test_chat_is_interactive_with_the_catalogue_sampler(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["chat", "--model-id", "qwen-0.8b-no-loop-02", "--gpu-layers", "0", "--think"])
+        argv = chat_argv(args, "llama-cli", "model.gguf")
+        for flag in ("-p", "-st", "-n", "--cache-type-k"):
+            self.assertNotIn(flag, argv)
+        for flag, value in (("-ngl", "0"), ("--device", "none"), ("--reasoning", "on"), ("--temp", "0.7"),
+                            ("--top-p", "0.80"), ("--presence-penalty", "1.5")):
+            self.assertEqual(argv[argv.index(flag) + 1], value)
+        self.assertEqual(runtime_backend(args), "cpu")
+        capped = parser.parse_args(["chat", "--model-id", "qwen-0.8b-no-loop-02", "-n", "512"])
+        argv = chat_argv(capped, "llama-cli", "model.gguf")
+        self.assertEqual(argv[argv.index("-n") + 1], "512")
+        one_shot = run_argv(parser.parse_args(["run", "--model-id", "qwen-0.8b-no-loop-02", "hi"]),
+                            "llama-cli", "model.gguf")
+        self.assertEqual(one_shot[one_shot.index("-p"):one_shot.index("-p") + 3], ["-p", "hi", "-st"])
+
+    def test_cpu_model_keeps_llama_defaults(self) -> None:
+        args = build_parser().parse_args(["serve"])
+        argv = serve_argv(args, "llama-server", "model.gguf")
+        self.assertNotIn("--presence-penalty", argv)
+        self.assertNotIn("--reasoning", argv)
+
+    def test_catalogued_no_loop_identity(self) -> None:
+        record = models.spec("qwen-0.8b-no-loop-02")
+        self.assertEqual(record["file"], "qwen-0.8b-no-loop-02.gguf")
+        self.assertEqual(record["size"], 833_592_416)
+        self.assertEqual(
+            record["sha256"],
+            "e4d6e93eb644da62e0c5ac0b7b188b4c2cbf31f07a7dcfd42764b6236f96d8a0",
+        )
+        self.assertTrue(record["url"].endswith("/" + record["file"]))
+        with tempfile.NamedTemporaryFile() as model:
+            model.truncate(record["size"])
+            self.assertEqual(models.resolve("qwen-0.8b-no-loop-02", model.name), model.name)
+            with self.assertRaises(models.ModelError):
+                models.resolve("qwen3.5-4b", model.name)
+
     def test_gpu_model_size_is_checked_against_selected_catalog(self) -> None:
         with tempfile.NamedTemporaryFile() as model:
             model.truncate(models.spec("qwen3.5-4b")["size"])
@@ -222,6 +282,8 @@ class RuntimeFlagTests(unittest.TestCase):
             with self.subTest(extra=extra):
                 args = parser.parse_args(["run", *extra, "hi"])
                 self.assert_argv_parses(run_argv(args, cli, self.MISSING_MODEL))
+                args = parser.parse_args(["chat", *extra])
+                self.assert_argv_parses(chat_argv(args, cli, self.MISSING_MODEL))
 
     def test_serve_flags_are_accepted_by_llama_server(self) -> None:
         server = built("llama-server")
