@@ -58,8 +58,10 @@ replies to 10 (paired p = 0.004). GSM8K accuracy stayed level. At the Qwen
 card's 1.0 / 0.95 it made no difference, so `--think` keeps 0.7 / 0.8 for this
 entry. With thinking off neither model looped.
 
+`kilix-llm pull` refuses this id. The model wizard installs the GGUF and its
+licence notices (`kilix models install qwen-0.8b-no-loop-02`).
+
 ```sh
-./kilix-llm pull --model-id qwen-0.8b-no-loop-02
 ./kilix-llm serve --model-id qwen-0.8b-no-loop-02 --device Vulkan1 --think
 ./kilix-llm chat --model-id qwen-0.8b-no-loop-02 --gpu-layers 0 --think
 ```
@@ -253,8 +255,9 @@ for fast incremental rebuilds while changing llama.cpp. A `KILIX_LLM_BUILD_DIR`
 you chose is never pruned. Builds of one backend take a lock, so concurrent
 first uses compile once.
 
-CMake uses Release, native CPU, CUDA/Metal off, curl off, and Vulkan on only
-when `--backend vulkan` is selected.
+CMake uses Release, native CPU, CUDA/Metal off, curl off, the prebuilt web UI
+off, and Vulkan on only when `--backend vulkan` is selected. LLM Chat and
+Avatar do not use the UI, and the build does not fetch it.
 Model download is `kilix-llm pull`, not the runtime.
 
 ## Tests

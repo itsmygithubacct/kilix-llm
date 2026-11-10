@@ -136,6 +136,7 @@ cmake -S "$SRC_COPY" -B "$BUILD_ROOT" \
     "${backend_flags[@]}" \
     -DGGML_METAL=OFF \
     -DLLAMA_CURL=OFF \
+    -DLLAMA_USE_PREBUILT_UI=OFF \
     >/dev/null
 cmake --build "$BUILD_ROOT" -j "$jobs" --target llama-cli llama-server llama-bench
 for name in llama-cli llama-server llama-bench; do

@@ -2,14 +2,25 @@
 
 from __future__ import annotations
 
+import argparse
+import io
 import os
 import subprocess
 import tempfile
 import unittest
+from contextlib import redirect_stderr
 from unittest import mock
 
 from kilix_llm import models, paths, runtime
-from kilix_llm.cli import build_parser, chat_argv, gpu_layers, run_argv, runtime_backend, serve_argv
+from kilix_llm.cli import (
+    build_parser,
+    chat_argv,
+    cmd_pull,
+    gpu_layers,
+    run_argv,
+    runtime_backend,
+    serve_argv,
+)
 
 
 REPO = paths.REPO_DIR
@@ -214,6 +225,35 @@ class ArgvTests(unittest.TestCase):
         self.assertIn("GGML_CUDA=OFF", flags)
         self.assertIn("GGML_VULKAN=OFF", flags)
         self.assertIn("LLAMA_CURL=OFF", flags)
+        self.assertIn("LLAMA_USE_PREBUILT_UI=OFF", flags)
+
+
+class PullTests(unittest.TestCase):
+    def test_no_loop_pull_points_at_the_wizard(self) -> None:
+        err = io.StringIO()
+        with redirect_stderr(err):
+            with self.assertRaises(SystemExit) as raised:
+                cmd_pull(argparse.Namespace(model_id="qwen-0.8b-no-loop-02"))
+        self.assertEqual(raised.exception.code, 2)
+        text = err.getvalue()
+        self.assertIn("kilix models install qwen-0.8b-no-loop-02", text)
+        self.assertIn("licence notices", text)
+
+    def test_missing_no_loop_file_does_not_offer_pull(self) -> None:
+        with self.assertRaises(models.ModelError) as raised:
+            models.resolve("qwen-0.8b-no-loop-02", "/no/such/qwen-0.8b-no-loop-02.gguf")
+        text = str(raised.exception)
+        self.assertIn("kilix models install qwen-0.8b-no-loop-02", text)
+        self.assertNotIn("pull", text)
+
+    def test_other_pulls_still_fetch(self) -> None:
+        with tempfile.TemporaryDirectory() as models_dir:
+            with mock.patch.dict(os.environ, {"KILIX_LLM_MODELS_DIR": models_dir}), \
+                    mock.patch("kilix_llm.cli.shutil.which", return_value="/usr/bin/curl"), \
+                    mock.patch("kilix_llm.cli.subprocess.call", return_value=1) as call:
+                rc = cmd_pull(argparse.Namespace(model_id="qwen3.5-4b"))
+        self.assertEqual(rc, 1)
+        self.assertEqual(call.call_args.args[0][0], "/usr/bin/curl")
 
 
 class DeviceTests(unittest.TestCase):

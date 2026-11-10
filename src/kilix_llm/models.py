@@ -109,6 +109,21 @@ def resolve(model_id: str = DEFAULT_MODEL_ID, override: str | None = None) -> st
     """Return the weight file if it is present and the expected length."""
     path = model_path(model_id, override)
     record = spec(model_id)
+    if model_id == "qwen-0.8b-no-loop-02":
+        install = (
+            "Install it with the model wizard: kilix models install "
+            "qwen-0.8b-no-loop-02. That delivers its licence notices."
+        )
+        if not os.path.isfile(path):
+            raise ModelError(
+                f"{record['title']} is not downloaded ({path} missing).\n{install}"
+            )
+        actual = os.path.getsize(path)
+        if actual != record["size"]:
+            raise ModelError(
+                f"{path} is {actual} bytes, expected {record['size']}.\n{install}"
+            )
+        return path
     if not os.path.isfile(path):
         raise ModelError(
             f"{record['title']} is not downloaded ({path} missing).\n"

@@ -22,6 +22,10 @@ CMAKE_FLAGS = (
     "-DGGML_VULKAN=OFF",
     "-DGGML_METAL=OFF",
     "-DLLAMA_CURL=OFF",
+    # LLM Chat and Avatar do not use llama-server's web UI. Leaving this on
+    # fetches a pinned Hugging Face archive and, when that fails, embeds the
+    # unpinned "latest" build.
+    "-DLLAMA_USE_PREBUILT_UI=OFF",
 )
 
 

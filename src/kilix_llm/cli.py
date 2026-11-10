@@ -182,6 +182,15 @@ def cmd_verify(args: argparse.Namespace) -> int:
 
 
 def cmd_pull(args: argparse.Namespace) -> int:
+    # This id's licence notices are delivered by the model wizard. pull would
+    # fetch the GGUF alone into kilix-llm's store and skip that delivery.
+    if args.model_id == "qwen-0.8b-no-loop-02":
+        die(
+            "qwen-0.8b-no-loop-02 is installed by the model wizard, which "
+            "delivers its licence notices: kilix models install "
+            "qwen-0.8b-no-loop-02. kilix-llm pull does not install those notices.",
+            2,
+        )
     record = models.spec(args.model_id)
     dest = models.model_path(args.model_id)
     os.makedirs(os.path.dirname(dest), exist_ok=True)
