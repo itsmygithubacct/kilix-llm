@@ -147,8 +147,12 @@ def cmd_build(args: argparse.Namespace) -> int:
             4,
         )
     runtime.require_vendor()
-    script = os.path.join(paths.SCRIPTS_DIR, "build-runtime.sh")
-    return subprocess.call([script, "--backend", args.backend])
+    argv = [runtime.BUILD_SCRIPT, "--backend", args.backend]
+    if args.if_needed:
+        argv.append("--if-needed")
+    if args.keep_build_tree:
+        argv.append("--keep-build-tree")
+    return subprocess.call(argv)
 
 
 def cmd_devices(args: argparse.Namespace) -> int:
@@ -252,6 +256,7 @@ def exec_cli(args: argparse.Namespace, build) -> int:
         runtime.require_vendor()
         model = models.resolve(args.model_id, args.model)
         backend = runtime_backend(args)
+        runtime.ensure_built(backend)
         cli = runtime.binary("llama-cli", backend)
         if gpu_layers(args):
             args.device = runtime.select_device(backend, args.device)
@@ -302,6 +307,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
         runtime.require_vendor()
         model = models.resolve(args.model_id, args.model)
         backend = runtime_backend(args)
+        runtime.ensure_built(backend)
         server = runtime.binary("llama-server", backend)
         if gpu_layers(args):
             args.device = runtime.select_device(backend, args.device)
@@ -408,6 +414,10 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("vendor", help="print the llama.cpp pin").set_defaults(func=cmd_vendor)
     build_p = sub.add_parser("build", help="compile the vendored llama.cpp")
     build_p.add_argument("--backend", choices=runtime.BACKENDS, default="cpu")
+    build_p.add_argument("--if-needed", action="store_true",
+                         help="build only when this backend is not built for the current pin")
+    build_p.add_argument("--keep-build-tree", action="store_true",
+                         help="keep the cmake tree for incremental rebuilds (default: keep bin/ only)")
     build_p.set_defaults(func=cmd_build)
     devices_p = sub.add_parser("devices", help="list available GPU device names")
     devices_p.add_argument("--backend", choices=runtime.BACKENDS, default="vulkan")

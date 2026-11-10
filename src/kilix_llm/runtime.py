@@ -6,12 +6,14 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 
 from . import paths
 from .pin import PinError, load as load_pin
 
 BINARIES = ("llama-cli", "llama-server", "llama-bench")
 BACKENDS = ("cpu", "vulkan")
+BUILD_SCRIPT = os.path.join(paths.SCRIPTS_DIR, "build-runtime.sh")
 
 CMAKE_FLAGS = (
     "-DCMAKE_BUILD_TYPE=Release",
@@ -94,6 +96,61 @@ def missing_build_packages(backend: str = "cpu") -> list[str]:
     if backend == "vulkan" and shutil.which("glslc") is None:
         missing.append("glslc")
     return missing
+
+
+def build_current(backend: str = "cpu") -> bool:
+    """The build script's own answer: every binary built for this backend and pin."""
+    try:
+        status = subprocess.call(
+            [BUILD_SCRIPT, "--backend", backend, "--check"],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+    except OSError:
+        return False
+    return status == 0
+
+
+def ensure_built(backend: str = "cpu") -> None:
+    """Build this backend on first use, or after a pin change; a no-op when current.
+
+    Provisioning places the pinned source and compiles nothing, so the first
+    `run`, `chat` or `serve` builds it once. The compile log goes to stderr, so
+    a one-shot `run` keeps stdout for the answer. Concurrent first uses wait
+    for one build (the script locks). KILIX_LLM_NO_AUTO_BUILD=1 keeps the old
+    contract: nothing is compiled and `binary` names the build command.
+    """
+    if os.environ.get("KILIX_LLM_NO_AUTO_BUILD") == "1" or build_current(backend):
+        return
+    missing = missing_build_packages(backend)
+    if missing:
+        raise RuntimeError_(
+            f"the {backend} runtime is not built, and building it needs: "
+            + ", ".join(missing)
+            + "\nOn Debian:  sudo apt-get install " + " ".join(missing)
+            + f"\nthen rerun, or build it now:  kilix-llm build --backend {backend}"
+        )
+    print(
+        f"kilix-llm: first use: building the {backend} runtime from the pinned "
+        "llama.cpp. This happens once and takes a few minutes.",
+        file=sys.stderr,
+        flush=True,
+    )
+    try:
+        log = sys.stderr.fileno()
+    except (AttributeError, OSError, ValueError):
+        log = None
+    try:
+        status = subprocess.call(
+            [BUILD_SCRIPT, "--backend", backend, "--if-needed"],
+            stdin=subprocess.DEVNULL, stdout=log,
+        )
+    except OSError as error:
+        raise RuntimeError_(f"could not start the {backend} runtime build: {error}") from error
+    if status != 0:
+        raise RuntimeError_(
+            f"the {backend} runtime build failed (status {status}); "
+            f"rerun it to see why:  kilix-llm build --backend {backend}"
+        )
 
 
 def binary(name: str, backend: str = "cpu") -> str:

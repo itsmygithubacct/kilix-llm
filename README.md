@@ -24,6 +24,12 @@ cd kilix-llm
 
 `./install.sh` puts a launcher on `PATH` that execs this checkout.
 
+`build` is optional: the first `run`, `chat` or `serve` builds the selected
+runtime when it is not built for the current pin, prints why, and sends the
+compile log to stderr. Later starts check a stamp in `bin/` and build nothing.
+A pin change rebuilds once. `KILIX_LLM_NO_AUTO_BUILD=1` turns this off, and a
+missing runtime is then an error that names the build command.
+
 ## GPU model
 
 [Qwen3.5-4B Q6_K](https://huggingface.co/unsloth/Qwen3.5-4B-GGUF)
@@ -166,7 +172,7 @@ the cause of the slowdown from the earlier short benchmark is unresolved.
 |---|---|
 | `kilix-llm doctor` | RAM, cores, pin, vendor tree, binaries, weights |
 | `kilix-llm vendor` | print the llama.cpp pin |
-| `kilix-llm build [--backend vulkan]` | compile the CPU or Vulkan runtime |
+| `kilix-llm build [--backend vulkan] [--if-needed] [--keep-build-tree]` | compile the CPU or Vulkan runtime (`--if-needed`: only when not built for this pin) |
 | `kilix-llm devices` | list GPU names for `--device` |
 | `kilix-llm pull [--model-id ID]` | download a catalogued GGUF (resumable): `qwen3.8-27b`, `qwen3.5-4b`, `qwen-0.8b-no-loop-02` |
 | `kilix-llm verify` | size + sha256 of the weights |
@@ -240,7 +246,12 @@ To change llama.cpp itself, edit files under `third_party/llama.cpp/`. For a
 change that should survive the next sync, drop a git patch in `patches/` and
 list it, with sha256, in the pin file. `scripts/build-runtime.sh` copies the
 vendor tree, applies those patches, and compiles into `build/llama.cpp`
-(override `KILIX_LLM_BUILD_DIR`).
+(override `KILIX_LLM_BUILD_DIR`). A finished build keeps only `bin/` (the
+binaries, their shared libraries and the stamp, about 25 MB). It removes the
+cmake tree and the patched source copy, about 0.7 GB. Pass `--keep-build-tree`
+for fast incremental rebuilds while changing llama.cpp. A `KILIX_LLM_BUILD_DIR`
+you chose is never pruned. Builds of one backend take a lock, so concurrent
+first uses compile once.
 
 CMake uses Release, native CPU, CUDA/Metal off, curl off, and Vulkan on only
 when `--backend vulkan` is selected.
