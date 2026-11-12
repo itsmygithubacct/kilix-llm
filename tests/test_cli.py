@@ -228,6 +228,51 @@ class ArgvTests(unittest.TestCase):
         self.assertIn("LLAMA_USE_PREBUILT_UI=OFF", flags)
 
 
+class ThinkWarningTests(unittest.TestCase):
+    """The 0.8B keeps thinking off by default and warns when it is turned on."""
+
+    def launch(self, argv: list[str]) -> str:
+        from kilix_llm.cli import main
+        err = io.StringIO()
+        with tempfile.TemporaryDirectory() as root, redirect_stderr(err):
+            # A missing weight file stops the launch right after the warning.
+            with self.assertRaises(SystemExit):
+                main([*argv, "--model", os.path.join(root, "missing.gguf")])
+        return err.getvalue()
+
+    def test_think_on_the_08b_prints_the_measured_warning(self) -> None:
+        for command in (["run", "--model-id", "qwen-0.8b-no-loop-02", "--think", "hi"],
+                        ["chat", "--model-id", "qwen-0.8b-no-loop-02", "--gpu-layers", "0", "--think"],
+                        ["serve", "--model-id", "qwen-0.8b-no-loop-02", "--think"]):
+            with self.subTest(command=command[0]):
+                err = self.launch(command)
+                self.assertIn("kilix-llm: warning: thinking mode is not recommended for this 0.8B model", err)
+                self.assertIn("56 of 300", err)
+                self.assertIn("142 of 300", err)
+
+    def test_no_warning_without_think_or_for_other_models(self) -> None:
+        for command in (["run", "--model-id", "qwen-0.8b-no-loop-02", "hi"],
+                        ["chat", "--model-id", "qwen-0.8b-no-loop-02", "--gpu-layers", "0"],
+                        ["serve", "--model-id", "qwen-0.8b-no-loop-02"],
+                        ["serve", "--model-id", "qwen3.5-4b", "--think"]):
+            with self.subTest(command=command):
+                self.assertNotIn("warning", self.launch(command))
+
+    def test_thinking_is_off_unless_asked(self) -> None:
+        parser = build_parser()
+        for command in (["chat", "--model-id", "qwen-0.8b-no-loop-02"],
+                        ["run", "--model-id", "qwen-0.8b-no-loop-02", "hi"],
+                        ["serve", "--model-id", "qwen-0.8b-no-loop-02"]):
+            with self.subTest(command=command[0]):
+                args = parser.parse_args(command)
+                self.assertFalse(args.think)
+                build = {"chat": chat_argv, "run": run_argv, "serve": serve_argv}[command[0]]
+                argv = build(args, "llama", "model.gguf")
+                self.assertEqual(argv[argv.index("--reasoning") + 1], "off")
+        self.assertIsNone(models.think_warning("qwen3.5-4b", True))
+        self.assertIsNone(models.think_warning("qwen-0.8b-no-loop-02", False))
+
+
 class PullTests(unittest.TestCase):
     def test_no_loop_pull_points_at_the_wizard(self) -> None:
         err = io.StringIO()

@@ -46,6 +46,15 @@ MODELS = {
         "n_gpu_layers": 99,
         "family": "qwen3.5",
         "think_sampling": ["--temp", "0.7", "--top-p", "0.80", "--top-k", "20"],
+        # Printed whenever --think is passed. Measured 2026-11-12 on the stock
+        # Qwen3.5-0.8B Q8_0 this file is edited from, at the sampler above with
+        # an 8,192-token cap, on GSM8K test problems 400-699.
+        "think_warning": (
+            "thinking mode is not recommended for this 0.8B model. With thinking on, the "
+            "Qwen3.5-0.8B it is edited from solved 56 of 300 held-out GSM8K problems, against "
+            "142 of 300 with thinking off, and 239 of its 300 thinking replies looped or ran "
+            "to the length limit. Leave --think off unless you are testing thinking mode."
+        ),
     },
     "qwen3.8-27b": {
         "title": "Qwen3.8 27B Q4",
@@ -97,6 +106,11 @@ def sampling(model_id: str, think: bool) -> list[str]:
     if think:
         return list(spec(model_id).get("think_sampling", THINK_SAMPLING))
     return list(SAMPLING)
+
+
+def think_warning(model_id: str, think: bool) -> str | None:
+    """The entry's warning against thinking mode, when thinking was asked for."""
+    return spec(model_id).get("think_warning") if think else None
 
 
 def model_path(model_id: str = DEFAULT_MODEL_ID, override: str | None = None) -> str:

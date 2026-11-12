@@ -58,12 +58,19 @@ replies to 10 (paired p = 0.004). GSM8K accuracy stayed level. At the Qwen
 card's 1.0 / 0.95 it made no difference, so `--think` keeps 0.7 / 0.8 for this
 entry. With thinking off neither model looped.
 
+Thinking mode is not recommended for this model, and nothing here turns it on
+by default. On 300 held-out GSM8K test problems (indices 400-699, measured
+2026-11-12), the stock Qwen3.5-0.8B it is edited from solved 56 with thinking
+on at 0.7 / 0.8 and an 8,192-token cap, and 142 with thinking off; 239 of the
+300 thinking replies looped or ran to the length limit. `--think` still works
+for `run`, `chat` and `serve`, and prints that warning first.
+
 `kilix-llm pull` refuses this id. The model wizard installs the GGUF and its
 licence notices (`kilix models install qwen-0.8b-no-loop-02`).
 
 ```sh
-./kilix-llm serve --model-id qwen-0.8b-no-loop-02 --device Vulkan1 --think
-./kilix-llm chat --model-id qwen-0.8b-no-loop-02 --gpu-layers 0 --think
+./kilix-llm serve --model-id qwen-0.8b-no-loop-02 --device Vulkan1
+./kilix-llm chat --model-id qwen-0.8b-no-loop-02 --gpu-layers 0
 ```
 
 Vulkan build dependencies on Debian/Ubuntu are `libvulkan-dev`, `glslc`, and

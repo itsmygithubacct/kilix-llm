@@ -29,6 +29,13 @@ def handle(error: Exception) -> None:
     raise error
 
 
+def warn_think(args: argparse.Namespace) -> None:
+    """Thinking stays available; an entry measured worse with it says so first."""
+    warning = models.think_warning(args.model_id, args.think)
+    if warning:
+        print(f"{PROG}: warning: {warning}", file=sys.stderr)
+
+
 def gpu_layers(args: argparse.Namespace) -> int:
     if args.gpu_layers is not None:
         return args.gpu_layers
@@ -261,6 +268,7 @@ def chat_argv(args: argparse.Namespace, cli: str, model: str) -> list[str]:
 
 
 def exec_cli(args: argparse.Namespace, build) -> int:
+    warn_think(args)
     try:
         runtime.require_vendor()
         model = models.resolve(args.model_id, args.model)
@@ -312,6 +320,7 @@ def serve_argv(args: argparse.Namespace, server: str, model: str) -> list[str]:
 
 
 def cmd_serve(args: argparse.Namespace) -> int:
+    warn_think(args)
     try:
         runtime.require_vendor()
         model = models.resolve(args.model_id, args.model)
