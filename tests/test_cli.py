@@ -301,6 +301,171 @@ class PullTests(unittest.TestCase):
         self.assertEqual(call.call_args.args[0][0], "/usr/bin/curl")
 
 
+# A catalogue entry shaped like a released adapter over the stock 0.8B. The
+# catalogue's own adapters are not released yet, so the loading rules are
+# tested on this one.
+TEST_ADAPTER = "test-adapter-01"
+TEST_ADAPTER_ENTRY = {
+    "title": "Test adapter 01 (adapter over Q8)",
+    "file": "test-adapter-01.gguf",
+    "size": 21_671_008,
+    "sha256": "474425eaa49369013eadf82307ae1576c7974b65fb9f6e943d7d2ac2555d7da8",
+    "url": "https://example.invalid/test-adapter-01.gguf",
+    "publisher": "test",
+    "ctx": 8192,
+    "quant": "LoRA rank 8 over Q8_0",
+    "n_gpu_layers": 99,
+    "family": "qwen3.5",
+    "base": "qwen3.5-0.8b",
+    "wizard_only": True,
+}
+
+
+class AdapterTests(unittest.TestCase):
+    """An entry that names a base is a LoRA that loads only over that exact base."""
+
+    ADAPTER = TEST_ADAPTER
+
+    def setUp(self) -> None:
+        patcher = mock.patch.dict(models.MODELS, {TEST_ADAPTER: dict(TEST_ADAPTER_ENTRY)})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_stock_base_identity(self) -> None:
+        self.assertEqual(models.base_id(self.ADAPTER), "qwen3.5-0.8b")
+        base = models.spec("qwen3.5-0.8b")
+        self.assertEqual(base["file"], "Qwen3.5-0.8B-Q8_0.gguf")
+        self.assertEqual(base["size"], 833_592_096)
+        self.assertEqual(
+            base["sha256"],
+            "37ae482d336108d23516fa35e8e0c4126688d81018b87178a18d752a1357814f",
+        )
+        self.assertIn("/807dfd9a6fadbf703207aac3bfb0b2b3040d077c/", base["url"])
+        self.assertIsNone(models.base_id("qwen-0.8b-no-loop-02"))
+        self.assertIsNone(models.base_id("qwen3.5-0.8b"))
+        self.assertNotIn("qwen-0.8b-thinking-01", models.MODELS)
+
+    def _store(self, models_dir: str, base_size: int, adapter_size: int = 21_671_008) -> tuple[str, str]:
+        base = os.path.join(models_dir, "Qwen3.5-0.8B-Q8_0.gguf")
+        adapter = os.path.join(models_dir, "test-adapter-01.gguf")
+        for path, size in ((base, base_size), (adapter, adapter_size)):
+            with open(path, "wb") as handle:
+                handle.truncate(size)
+        return base, adapter
+
+    def test_launch_loads_the_adapter_over_the_base(self) -> None:
+        with tempfile.TemporaryDirectory() as models_dir, \
+                mock.patch.dict(os.environ, {"KILIX_LLM_MODELS_DIR": models_dir}):
+            base, adapter = self._store(models_dir, 833_592_096)
+            self.assertEqual(models.launch_files(self.ADAPTER), (base, adapter))
+            self.assertEqual(models.launch_files("qwen3.5-0.8b"), (base, None))
+            parser = build_parser()
+            args = parser.parse_args(["serve", "--model-id", self.ADAPTER, "--think"])
+            model, args.adapter = models.launch_files(self.ADAPTER)
+            argv = serve_argv(args, "llama-server", model)
+            self.assertEqual(argv[argv.index("-m") + 1], base)
+            self.assertEqual(argv[argv.index("--lora") + 1], adapter)
+            for flag, value in (("--temp", "1.0"), ("--top-p", "0.95"), ("--top-k", "20"),
+                                ("--presence-penalty", "1.5"), ("--reasoning", "on"),
+                                ("--parallel", "1"), ("-ngl", "99")):
+                self.assertEqual(argv[argv.index(flag) + 1], value)
+            chat = parser.parse_args(["chat", "--model-id", self.ADAPTER, "--gpu-layers", "0", "--think"])
+            model, chat.adapter = models.launch_files(self.ADAPTER)
+            argv = chat_argv(chat, "llama-cli", model)
+            self.assertEqual(argv[argv.index("-m") + 1], base)
+            self.assertEqual(argv[argv.index("--lora") + 1], adapter)
+            plain = parser.parse_args(["serve", "--model-id", "qwen3.5-0.8b"])
+            self.assertNotIn("--lora", serve_argv(plain, "llama-server", base))
+
+    def test_adapter_refuses_a_missing_or_different_base(self) -> None:
+        with tempfile.TemporaryDirectory() as models_dir, \
+                mock.patch.dict(os.environ, {"KILIX_LLM_MODELS_DIR": models_dir}):
+            adapter = os.path.join(models_dir, "test-adapter-01.gguf")
+            with open(adapter, "wb") as handle:
+                handle.truncate(21_671_008)
+            with self.assertRaises(models.ModelError) as raised:
+                models.launch_files(self.ADAPTER)
+            self.assertIn("kilix models install test-adapter-01", str(raised.exception))
+            self.assertNotIn("pull", str(raised.exception))
+            # The no-loop-02 file is not the base, and its length says so.
+            self._store(models_dir, 833_592_416)
+            with self.assertRaises(models.ModelError) as raised:
+                models.launch_files(self.ADAPTER)
+            self.assertIn("loads only over that exact file", str(raised.exception))
+
+    def test_missing_adapter_is_reported_before_its_base(self) -> None:
+        with tempfile.TemporaryDirectory() as models_dir, \
+                mock.patch.dict(os.environ, {"KILIX_LLM_MODELS_DIR": models_dir}):
+            with self.assertRaises(models.ModelError) as raised:
+                models.resolve(self.ADAPTER)
+        self.assertIn("Test adapter 01", str(raised.exception).split("\n")[0])
+        self.assertIn("test-adapter-01.gguf missing", str(raised.exception))
+
+    def test_verify_checks_the_base_digest(self) -> None:
+        with tempfile.TemporaryDirectory() as models_dir, \
+                mock.patch.dict(os.environ, {"KILIX_LLM_MODELS_DIR": models_dir}):
+            base = os.path.join(models_dir, "Qwen3.5-0.8B-Q8_0.gguf")
+            adapter = os.path.join(models_dir, "test-adapter-01.gguf")
+            with open(base, "wb") as handle:
+                handle.write(b"base-bytes")
+            with open(adapter, "wb") as handle:
+                handle.write(b"adapter-bytes")
+            fake = {
+                "qwen3.5-0.8b": dict(models.MODELS["qwen3.5-0.8b"], size=10,
+                                     sha256=models.digest_file(base)),
+                self.ADAPTER: dict(models.MODELS[self.ADAPTER], size=13,
+                                   sha256=models.digest_file(adapter)),
+            }
+            with mock.patch.dict(models.MODELS, fake):
+                self.assertEqual(models.verify(self.ADAPTER), adapter)
+                with open(base, "wb") as handle:
+                    handle.write(b"other-base")
+                with self.assertRaises(models.ModelError) as raised:
+                    models.verify(self.ADAPTER)
+            self.assertIn("loads only over that exact file", str(raised.exception))
+
+    def test_base_may_live_in_its_own_asset_directory(self) -> None:
+        # Content installs each asset into its own directory, so the launcher
+        # names the base with --base. Its length is still the catalogue's.
+        with tempfile.TemporaryDirectory() as base_dir, tempfile.TemporaryDirectory() as adapter_dir, \
+                tempfile.TemporaryDirectory() as empty, \
+                mock.patch.dict(os.environ, {"KILIX_LLM_MODELS_DIR": empty}):
+            base, adapter = self._store(base_dir, 833_592_096)
+            moved = os.path.join(adapter_dir, "test-adapter-01.gguf")
+            os.rename(adapter, moved)
+            with self.assertRaises(models.ModelError):
+                models.launch_files(self.ADAPTER, moved)
+            self.assertEqual(models.launch_files(self.ADAPTER, moved, base), (base, moved))
+            args = build_parser().parse_args(["serve", "--model-id", self.ADAPTER,
+                                              "--model", moved, "--base", base])
+            self.assertEqual((args.model, args.base), (moved, base))
+            model, args.adapter = models.launch_files(args.model_id, args.model, args.base)
+            argv = serve_argv(args, "llama-server", model)
+            self.assertEqual(argv[argv.index("-m") + 1], base)
+            self.assertEqual(argv[argv.index("--lora") + 1], moved)
+            with open(base, "r+b") as handle:
+                handle.truncate(833_592_416)
+            with self.assertRaises(models.ModelError) as raised:
+                models.launch_files(self.ADAPTER, moved, base)
+            self.assertIn("loads only over that exact file", str(raised.exception))
+
+    def test_base_is_refused_for_a_full_model(self) -> None:
+        with tempfile.NamedTemporaryFile() as model:
+            model.truncate(models.spec("qwen3.5-0.8b")["size"])
+            with self.assertRaises(models.ModelError) as raised:
+                models.launch_files("qwen3.5-0.8b", model.name, model.name)
+        self.assertIn("--base applies only to an adapter", str(raised.exception))
+
+    def test_wizard_only_adapter_pull_points_at_the_wizard(self) -> None:
+        err = io.StringIO()
+        with redirect_stderr(err):
+            with self.assertRaises(SystemExit) as raised:
+                cmd_pull(argparse.Namespace(model_id=self.ADAPTER))
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn("kilix models install test-adapter-01", err.getvalue())
+        self.assertIn("licence notices", err.getvalue())
+
+
 class DeviceTests(unittest.TestCase):
     def test_device_listing_and_ambiguous_selection(self) -> None:
         result = subprocess.CompletedProcess([], 0, stdout=(
@@ -376,6 +541,23 @@ class RuntimeFlagTests(unittest.TestCase):
             self.skipTest("llama-server is not built")
         args = build_parser().parse_args(["serve", "--port", "0"])
         self.assert_argv_parses(serve_argv(args, server, self.MISSING_MODEL))
+
+    def test_adapter_flag_is_accepted_by_both_binaries(self) -> None:
+        cli, server = built("llama-cli"), built("llama-server")
+        if not cli or not server:
+            self.skipTest("CPU runtime is not built")
+        parser = build_parser()
+        for command, binary, builder, extra in (
+            ("run", cli, run_argv, ["hi"]),
+            ("serve", server, serve_argv, ["--port", "0"]),
+        ):
+            with self.subTest(command=command):
+                args = parser.parse_args([command, "--model-id", "qwen3.5-0.8b",
+                                          "--gpu-layers", "0", "--think", *extra])
+                args.adapter = "/nonexistent/kilix-llm-test-adapter.gguf"
+                argv = builder(args, binary, self.MISSING_MODEL)
+                self.assertIn("--lora", argv)
+                self.assert_argv_parses(argv)
 
     def test_gpu_profile_flags_are_accepted_by_vulkan_runtime(self) -> None:
         cli, server = built("llama-cli", "vulkan"), built("llama-server", "vulkan")

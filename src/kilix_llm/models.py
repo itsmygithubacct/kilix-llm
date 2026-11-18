@@ -55,6 +55,24 @@ MODELS = {
             "142 of 300 with thinking off, and 239 of its 300 thinking replies looped or ran "
             "to the length limit. Leave --think off unless you are testing thinking mode."
         ),
+        "wizard_only": True,
+    },
+    # The stock Qwen3.5-0.8B Q8_0 that qwen-0.8b-no-loop-01/02 were edited
+    # from, and the base that adapters in this catalogue load over. Apache-2.0.
+    "qwen3.5-0.8b": {
+        "title": "Qwen3.5 0.8B Q8 (GPU)",
+        "file": "Qwen3.5-0.8B-Q8_0.gguf",
+        "size": 833_592_096,
+        "sha256": "37ae482d336108d23516fa35e8e0c4126688d81018b87178a18d752a1357814f",
+        "url": (
+            "https://huggingface.co/ggml-org/Qwen3.5-0.8B-GGUF/resolve/"
+            "807dfd9a6fadbf703207aac3bfb0b2b3040d077c/Qwen3.5-0.8B-Q8_0.gguf"
+        ),
+        "publisher": "ggml-org/Qwen3.5-0.8B-GGUF",
+        "ctx": 8192,
+        "quant": "Q8_0",
+        "n_gpu_layers": 99,
+        "family": "qwen3.5",
     },
     "qwen3.8-27b": {
         "title": "Qwen3.8 27B Q4",
@@ -119,15 +137,64 @@ def model_path(model_id: str = DEFAULT_MODEL_ID, override: str | None = None) ->
     return os.path.join(paths.models_dir(), spec(model_id)["file"])
 
 
-def resolve(model_id: str = DEFAULT_MODEL_ID, override: str | None = None) -> str:
-    """Return the weight file if it is present and the expected length."""
+def wizard_install(model_id: str) -> str:
+    return (
+        f"Install it with the model wizard: kilix models install {model_id}. "
+        "That delivers its licence notices."
+    )
+
+
+def base_id(model_id: str) -> str | None:
+    """The catalogue id an adapter must be loaded over, or None for a full model."""
+    return spec(model_id).get("base")
+
+
+def base_path(model_id: str, base_override: str | None = None) -> str:
+    """Where an adapter's base is read: --base, else the base's catalogue path."""
+    base = base_id(model_id)
+    if base is None:
+        if base_override:
+            raise ModelError(f"--base applies only to an adapter; {model_id} is a full model")
+        raise ModelError(f"{model_id} is a full model and has no base")
+    return base_override or model_path(base)
+
+
+def _check_base(model_id: str, base_override: str | None = None) -> None:
+    """An adapter's base must be present and exactly the catalogued length."""
+    base = base_id(model_id)
+    if base is None:
+        if base_override:
+            base_path(model_id, base_override)
+        return
+    record = spec(model_id)
+    found = base_path(model_id, base_override)
+    base_record = spec(base)
+    install = wizard_install(model_id)
+    if not os.path.isfile(found):
+        raise ModelError(
+            f"{record['title']} loads over {base_record['title']}, which is not "
+            f"downloaded ({found} missing).\n{install}"
+        )
+    actual = os.path.getsize(found)
+    if actual != base_record["size"]:
+        raise ModelError(
+            f"{found} is {actual} bytes, expected {base_record['size']}: "
+            f"{record['title']} loads only over that exact file.\n{install}"
+        )
+
+
+def resolve(model_id: str = DEFAULT_MODEL_ID, override: str | None = None,
+            base_override: str | None = None) -> str:
+    """Return the weight file if it is present and the expected length.
+
+    For an adapter this is the adapter file, and its base must be present and
+    the expected length too. `override` names the adapter; `base_override`
+    names the base (each content asset installs into its own directory).
+    """
     path = model_path(model_id, override)
     record = spec(model_id)
-    if model_id == "qwen-0.8b-no-loop-02":
-        install = (
-            "Install it with the model wizard: kilix models install "
-            "qwen-0.8b-no-loop-02. That delivers its licence notices."
-        )
+    if record.get("wizard_only"):
+        install = wizard_install(model_id)
         if not os.path.isfile(path):
             raise ModelError(
                 f"{record['title']} is not downloaded ({path} missing).\n{install}"
@@ -137,6 +204,7 @@ def resolve(model_id: str = DEFAULT_MODEL_ID, override: str | None = None) -> st
             raise ModelError(
                 f"{path} is {actual} bytes, expected {record['size']}.\n{install}"
             )
+        _check_base(model_id, base_override)
         return path
     if not os.path.isfile(path):
         raise ModelError(
@@ -149,6 +217,7 @@ def resolve(model_id: str = DEFAULT_MODEL_ID, override: str | None = None) -> st
             f"{path} is {actual} bytes, expected {record['size']} — "
             f"an interrupted download? `kilix-llm pull --model-id {model_id}` resumes it"
         )
+    _check_base(model_id, base_override)
     return path
 
 
@@ -163,12 +232,31 @@ def digest_file(path: str) -> str:
     return hasher.hexdigest()
 
 
-def verify(model_id: str = DEFAULT_MODEL_ID, override: str | None = None) -> str:
-    path = resolve(model_id, override)
+def verify(model_id: str = DEFAULT_MODEL_ID, override: str | None = None,
+           base_override: str | None = None) -> str:
+    path = resolve(model_id, override, base_override)
     record = spec(model_id)
     got = digest_file(path)
     if got != record["sha256"]:
         raise ModelError(
             f"{path} sha256 is {got}, expected {record['sha256']}"
         )
+    base = base_id(model_id)
+    if base is not None:
+        base_file = base_path(model_id, base_override)
+        got = digest_file(base_file)
+        if got != spec(base)["sha256"]:
+            raise ModelError(
+                f"{base_file} sha256 is {got}, expected {spec(base)['sha256']}: "
+                f"{record['title']} loads only over that exact file"
+            )
     return path
+
+
+def launch_files(model_id: str = DEFAULT_MODEL_ID, override: str | None = None,
+                 base_override: str | None = None) -> tuple[str, str | None]:
+    """(file for -m, adapter for --lora or None), after resolve()'s checks."""
+    path = resolve(model_id, override, base_override)
+    if base_id(model_id) is None:
+        return path, None
+    return base_path(model_id, base_override), path

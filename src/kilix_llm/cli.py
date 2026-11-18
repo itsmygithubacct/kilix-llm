@@ -181,7 +181,7 @@ def cmd_path(args: argparse.Namespace) -> int:
 
 def cmd_verify(args: argparse.Namespace) -> int:
     try:
-        path = models.verify(args.model_id, args.model)
+        path = models.verify(args.model_id, args.model, args.base)
     except models.ModelError as error:
         handle(error)
     print(path)
@@ -189,13 +189,13 @@ def cmd_verify(args: argparse.Namespace) -> int:
 
 
 def cmd_pull(args: argparse.Namespace) -> int:
-    # This id's licence notices are delivered by the model wizard. pull would
+    # These ids' licence notices are delivered by the model wizard. pull would
     # fetch the GGUF alone into kilix-llm's store and skip that delivery.
-    if args.model_id == "qwen-0.8b-no-loop-02":
+    if models.spec(args.model_id).get("wizard_only"):
         die(
-            "qwen-0.8b-no-loop-02 is installed by the model wizard, which "
+            f"{args.model_id} is installed by the model wizard, which "
             "delivers its licence notices: kilix models install "
-            "qwen-0.8b-no-loop-02. kilix-llm pull does not install those notices.",
+            f"{args.model_id}. kilix-llm pull does not install those notices.",
             2,
         )
     record = models.spec(args.model_id)
@@ -227,6 +227,12 @@ def cmd_pull(args: argparse.Namespace) -> int:
     return 0
 
 
+def adapter_args(args: argparse.Namespace) -> list[str]:
+    """`--lora FILE` when the catalogue id is an adapter over its base."""
+    adapter = getattr(args, "adapter", None)
+    return ["--lora", adapter] if adapter else []
+
+
 def cli_argv(args: argparse.Namespace, cli: str, model: str, turn: list[str]) -> list[str]:
     """llama-cli with the catalogue runtime and sampler; `turn` decides one shot or chat."""
     record = models.spec(args.model_id)
@@ -237,6 +243,7 @@ def cli_argv(args: argparse.Namespace, cli: str, model: str, turn: list[str]) ->
         *common_runtime_args(args, record["ctx"]),
         *sampling_args(args),
         "--jinja",
+        *adapter_args(args),
         *turn,
     ]
     argv.extend(["--reasoning", "on" if args.think else "off"])
@@ -271,7 +278,7 @@ def exec_cli(args: argparse.Namespace, build) -> int:
     warn_think(args)
     try:
         runtime.require_vendor()
-        model = models.resolve(args.model_id, args.model)
+        model, args.adapter = models.launch_files(args.model_id, args.model, args.base)
         backend = runtime_backend(args)
         runtime.ensure_built(backend)
         cli = runtime.binary("llama-cli", backend)
@@ -306,6 +313,7 @@ def serve_argv(args: argparse.Namespace, server: str, model: str) -> list[str]:
         "--port",
         str(args.port),
         "--jinja",
+        *adapter_args(args),
         "--cache-type-k",
         "q8_0",
         "--cache-type-v",
@@ -323,7 +331,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
     warn_think(args)
     try:
         runtime.require_vendor()
-        model = models.resolve(args.model_id, args.model)
+        model, args.adapter = models.launch_files(args.model_id, args.model, args.base)
         backend = runtime_backend(args)
         runtime.ensure_built(backend)
         server = runtime.binary("llama-server", backend)
@@ -348,6 +356,11 @@ def add_model_args(parser: argparse.ArgumentParser) -> None:
         "--model",
         default=None,
         help="path to the selected catalog model; size/hash still checked against --model-id",
+    )
+    parser.add_argument(
+        "--base",
+        default=None,
+        help="path to an adapter's base GGUF; size/hash still checked against the base's entry",
     )
 
 

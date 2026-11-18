@@ -73,6 +73,14 @@ licence notices (`kilix models install qwen-0.8b-no-loop-02`).
 ./kilix-llm chat --model-id qwen-0.8b-no-loop-02 --gpu-layers 0
 ```
 
+`qwen3.5-0.8b` is the stock Qwen3.5-0.8B Q8_0 (ggml-org, 833,592,096 bytes),
+pinned by revision and sha256. A catalogue entry that names a `base` is a LoRA
+adapter: `run`, `chat` and `serve` load the base with `-m` and the adapter with
+`--lora`. A missing or different-length base is refused at launch, and `verify`
+checks both sha256 digests. `--base PATH` names a base that lives outside
+kilix-llm's model directory (the model wizard installs each asset into its own
+directory); it is refused for a full model.
+
 Vulkan build dependencies on Debian/Ubuntu are `libvulkan-dev`, `glslc`, and
 `spirv-headers`, in addition to CMake, a C++ compiler, and rsync. Vulkan can
 use Mesa NVK on supported NVIDIA hardware without installing a CUDA driver.
@@ -183,7 +191,7 @@ the cause of the slowdown from the earlier short benchmark is unresolved.
 | `kilix-llm vendor` | print the llama.cpp pin |
 | `kilix-llm build [--backend vulkan] [--if-needed] [--keep-build-tree]` | compile the CPU or Vulkan runtime (`--if-needed`: only when not built for this pin) |
 | `kilix-llm devices` | list GPU names for `--device` |
-| `kilix-llm pull [--model-id ID]` | download a catalogued GGUF (resumable): `qwen3.8-27b`, `qwen3.5-4b`, `qwen-0.8b-no-loop-02` |
+| `kilix-llm pull [--model-id ID]` | download a catalogued GGUF (resumable): `qwen3.8-27b`, `qwen3.5-4b`, `qwen3.5-0.8b`; the wizard-installed `qwen-0.8b-no-loop-02` is refused |
 | `kilix-llm verify` | size + sha256 of the weights |
 | `kilix-llm path` | where the weights resolve |
 | `kilix-llm run PROMPT` | one shot via `llama-cli` |
