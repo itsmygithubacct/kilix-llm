@@ -9,7 +9,7 @@ import shutil
 import subprocess
 import sys
 
-from . import __version__, help_acceptance, help_query, models, paths, pin, runtime, vm
+from . import __version__, help_acceptance, help_query, install, models, paths, pin, runtime, vm
 
 PROG = "kilix-llm"
 
@@ -198,29 +198,10 @@ def cmd_pull(args: argparse.Namespace) -> int:
             f"{args.model_id}. kilix-llm pull does not install those notices.",
             2,
         )
-    record = models.spec(args.model_id)
     dest = models.model_path(args.model_id)
-    os.makedirs(os.path.dirname(dest), exist_ok=True)
-    curl = shutil.which("curl")
-    if curl is None:
-        die("curl is required to pull weights", 4)
-    argv = [
-        curl,
-        "-fL",
-        "--retry",
-        "3",
-        "-C",
-        "-",
-        "-o",
-        dest,
-        record["url"],
-    ]
-    print(f"{PROG}: fetching {record['file']} ({record['size']} bytes)", file=sys.stderr)
-    rc = subprocess.call(argv)
-    if rc != 0:
-        return rc
     try:
-        models.verify(args.model_id)
+        models.require_released(args.model_id)
+        install.fetch(install.Asset(args.model_id, dest, install.licence_file(args.model_id, dest)))
     except models.ModelError as error:
         handle(error)
     print(dest)

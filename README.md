@@ -81,6 +81,18 @@ checks both sha256 digests. `--base PATH` names a base that lives outside
 kilix-llm's model directory (the model wizard installs each asset into its own
 directory); it is refused for a full model.
 
+`lfm2-1.2b-tool` is LiquidAI's own Q8_0 of LFM2-1.2B-Tool (1,246,252,768 bytes,
+pinned by revision and sha256), the base for LFM2 tunings. It is under the LFM
+Open License v1.0, which limits commercial use. Its licence is delivered as a
+notice, Debian style: `pull` (and `judge --yes`) downloads the licence text with
+the weights and saves it beside them as `LFM2-1.2B-Tool-Q8_0.LICENSE`. No
+agreement is asked for or recorded.
+
+Tunings are catalogue entries, not code: each names the base it loads over,
+the task command that runs it (`judge` for now) and its release asset. An entry
+without a sha256 is catalogued ahead of its release and is refused.
+`qwen-0.8b-binary-01` is such an entry until its adapter passes its ship bar.
+
 Vulkan build dependencies on Debian/Ubuntu are `libvulkan-dev`, `glslc`, and
 `spirv-headers`, in addition to CMake, a C++ compiler, and rsync. Vulkan can
 use Mesa NVK on supported NVIDIA hardware without installing a CUDA driver.
@@ -191,7 +203,7 @@ the cause of the slowdown from the earlier short benchmark is unresolved.
 | `kilix-llm vendor` | print the llama.cpp pin |
 | `kilix-llm build [--backend vulkan] [--if-needed] [--keep-build-tree]` | compile the CPU or Vulkan runtime (`--if-needed`: only when not built for this pin) |
 | `kilix-llm devices` | list GPU names for `--device` |
-| `kilix-llm pull [--model-id ID]` | download a catalogued GGUF (resumable): `qwen3.8-27b`, `qwen3.5-4b`, `qwen3.5-0.8b`; the wizard-installed `qwen-0.8b-no-loop-02` is refused |
+| `kilix-llm pull [--model-id ID]` | download a catalogued GGUF (resumable): `qwen3.8-27b`, `qwen3.5-4b`, `qwen3.5-0.8b`, `lfm2-1.2b-tool` (with its licence text); the wizard-installed `qwen-0.8b-no-loop-02` and unreleased tunings are refused |
 | `kilix-llm verify` | size + sha256 of the weights |
 | `kilix-llm path` | where the weights resolve |
 | `kilix-llm run PROMPT` | one shot via `llama-cli` |

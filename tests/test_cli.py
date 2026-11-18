@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import io
 import os
 import subprocess
 import tempfile
 import unittest
-from contextlib import redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 from unittest import mock
 
 from kilix_llm import models, paths, runtime
@@ -273,6 +274,81 @@ class ThinkWarningTests(unittest.TestCase):
         self.assertIsNone(models.think_warning("qwen-0.8b-no-loop-02", False))
 
 
+class CatalogueTests(unittest.TestCase):
+    """Bases and the adapter family are catalogue data, not code."""
+
+    def test_lfm2_base_identity_and_licence_notice(self) -> None:
+        record = models.spec("lfm2-1.2b-tool")
+        self.assertEqual(record["file"], "LFM2-1.2B-Tool-Q8_0.gguf")
+        self.assertEqual(record["size"], 1_246_252_768)
+        self.assertEqual(
+            record["sha256"],
+            "bf035d5876eb8ef0b1a87cf0cf30d9717e4cc628d483c5b49b342603d5f2ee67",
+        )
+        self.assertIn("/LiquidAI/LFM2-1.2B-Tool-GGUF/resolve/"
+                      "e7ec4149433c75d4bb53a0742ee1ebde7fcbd183/", record["url"])
+        licence = record["licence"]
+        self.assertEqual(licence["id"], "LFM-Open-License-1.0")
+        self.assertIn("limits commercial use", licence["notice"])
+        self.assertIn("No agreement is asked for or recorded", licence["notice"])
+        self.assertEqual(licence["file"]["size"], 10_574)
+        self.assertEqual(
+            licence["file"]["sha256"],
+            "4d28ca14dedc0b3d0fcc2b3339f0e79931faa33874f3d24f522183a8fc70068c",
+        )
+        self.assertIsNone(models.base_id("lfm2-1.2b-tool"))
+
+    def test_binary_01_is_an_unreleased_adapter_over_the_stock_base(self) -> None:
+        record = models.spec("qwen-0.8b-binary-01")
+        self.assertEqual(models.base_id("qwen-0.8b-binary-01"), "qwen3.5-0.8b")
+        self.assertEqual(record["tasks"], ["judge"])
+        self.assertFalse(models.released("qwen-0.8b-binary-01"))
+        self.assertTrue(models.released("qwen3.5-0.8b"))
+        with self.assertRaises(models.ModelError) as raised:
+            models.resolve("qwen-0.8b-binary-01")
+        self.assertIn("not released yet", str(raised.exception))
+        self.assertIn("--model-id qwen3.5-0.8b", str(raised.exception))
+        err = io.StringIO()
+        with redirect_stderr(err), self.assertRaises(SystemExit) as exited:
+            cmd_pull(argparse.Namespace(model_id="qwen-0.8b-binary-01"))
+        self.assertEqual(exited.exception.code, 2)
+        self.assertIn("not released yet", err.getvalue())
+
+    def test_judge_models_name_a_sized_base(self) -> None:
+        judges = [k for k, v in models.MODELS.items() if "judge" in v.get("tasks", ())]
+        self.assertEqual(sorted(judges), ["lfm2-1.2b-tool", "qwen-0.8b-binary-01", "qwen3.5-0.8b"])
+        for model_id in judges:
+            base = models.base_id(model_id) or model_id
+            self.assertIn(models.spec(base)["sizer_model"], ("qwen3.5-0.8b-q8_0", "lfm2-1.2b-tool-q8_0"))
+            self.assertIn("licence", models.spec(model_id))
+
+    def test_lfm2_pull_saves_the_licence_text_beside_the_weights(self) -> None:
+        weights, licence = b"lfm2-weights", b"LFM Open License text"
+        fake = {"lfm2-1.2b-tool": dict(
+            models.MODELS["lfm2-1.2b-tool"], size=len(weights),
+            sha256=hashlib.sha256(weights).hexdigest(),
+            licence=dict(models.MODELS["lfm2-1.2b-tool"]["licence"], file=dict(
+                models.MODELS["lfm2-1.2b-tool"]["licence"]["file"], size=len(licence),
+                sha256=hashlib.sha256(licence).hexdigest())))}
+
+        def curl(url: str, dest: str, resume: bool) -> None:
+            with open(dest, "wb") as handle:
+                handle.write(licence if url.endswith("/LICENSE") else weights)
+
+        out, err = io.StringIO(), io.StringIO()
+        with tempfile.TemporaryDirectory() as models_dir, \
+                mock.patch.dict(os.environ, {"KILIX_LLM_MODELS_DIR": models_dir}), \
+                mock.patch.dict(models.MODELS, fake), \
+                mock.patch("kilix_llm.install._curl", side_effect=curl), \
+                redirect_stdout(out), redirect_stderr(err):
+            self.assertEqual(cmd_pull(argparse.Namespace(model_id="lfm2-1.2b-tool")), 0)
+            saved = os.path.join(models_dir, "LFM2-1.2B-Tool-Q8_0.LICENSE")
+            with open(saved, "rb") as handle:
+                self.assertEqual(handle.read(), licence)
+        self.assertEqual(out.getvalue(), os.path.join(models_dir, "LFM2-1.2B-Tool-Q8_0.gguf") + "\n")
+        self.assertIn("LFM-Open-License-1.0 text saved at", err.getvalue())
+
+
 class PullTests(unittest.TestCase):
     def test_no_loop_pull_points_at_the_wizard(self) -> None:
         err = io.StringIO()
@@ -294,10 +370,12 @@ class PullTests(unittest.TestCase):
     def test_other_pulls_still_fetch(self) -> None:
         with tempfile.TemporaryDirectory() as models_dir:
             with mock.patch.dict(os.environ, {"KILIX_LLM_MODELS_DIR": models_dir}), \
-                    mock.patch("kilix_llm.cli.shutil.which", return_value="/usr/bin/curl"), \
-                    mock.patch("kilix_llm.cli.subprocess.call", return_value=1) as call:
-                rc = cmd_pull(argparse.Namespace(model_id="qwen3.5-4b"))
-        self.assertEqual(rc, 1)
+                    mock.patch("kilix_llm.install.shutil.which", return_value="/usr/bin/curl"), \
+                    mock.patch("kilix_llm.install.subprocess.call", return_value=1) as call, \
+                    redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as raised:
+                    cmd_pull(argparse.Namespace(model_id="qwen3.5-4b"))
+        self.assertEqual(raised.exception.code, 1)
         self.assertEqual(call.call_args.args[0][0], "/usr/bin/curl")
 
 
