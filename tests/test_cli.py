@@ -613,6 +613,18 @@ class RuntimeFlagTests(unittest.TestCase):
                 args = parser.parse_args(["chat", *extra])
                 self.assert_argv_parses(chat_argv(args, cli, self.MISSING_MODEL))
 
+    def test_judge_flags_are_accepted_by_llama_server(self) -> None:
+        from kilix_llm import judge
+        server = built("llama-server")
+        if server is None:
+            self.skipTest("llama-server is not built")
+        args = build_parser().parse_args(["judge", "--model-id", "qwen3.5-0.8b", "x"])
+        # The server binds its socket before it loads the model.
+        with tempfile.TemporaryDirectory() as scratch:
+            argv = judge.server_argv(args, server, self.MISSING_MODEL, "/nonexistent/adapter.gguf",
+                                     1024, os.path.join(scratch, "engine.sock"))
+            self.assert_argv_parses(argv)
+
     def test_serve_flags_are_accepted_by_llama_server(self) -> None:
         server = built("llama-server")
         if server is None:

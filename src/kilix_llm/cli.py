@@ -9,7 +9,7 @@ import shutil
 import subprocess
 import sys
 
-from . import __version__, help_acceptance, help_query, install, models, paths, pin, runtime, vm
+from . import __version__, help_acceptance, help_query, install, judge, models, paths, pin, runtime, vm
 
 PROG = "kilix-llm"
 
@@ -470,6 +470,7 @@ def build_parser() -> argparse.ArgumentParser:
     serve_p.add_argument("--port", type=int, default=8080)
     serve_p.add_argument("--think", action="store_true", help="enable thinking mode")
     serve_p.set_defaults(func=cmd_serve)
+    judge.add_parser(sub)
     vm.add_parser(sub)
     return parser
 
