@@ -119,7 +119,7 @@ def ask_sizer(path: str, model_id: str, backend: str, reserve_mb: int | None) ->
 # --- the engine ----------------------------------------------------------------
 
 class _UnixHTTPConnection(http.client.HTTPConnection):
-    def __init__(self, path: str, timeout: float):
+    def __init__(self, path: str, timeout: float | None):
         super().__init__("localhost", timeout=timeout)
         self._path = path
 
@@ -164,7 +164,11 @@ def server_argv(args: argparse.Namespace, server: str, base: str, adapter: str |
 class Engine:
     """One llama-server child on a socket in a private directory, stopped by PID."""
 
-    def __init__(self, argv_for, startup: float = 600.0, timeout: float = 3600.0):
+    # No read timeout by default: llama-server sends nothing while it reads the
+    # prompt, and an input near the limit on a slow machine can take hours. The
+    # engine is this process's child and dies with it; if it dies first, its
+    # socket closes and the request fails.
+    def __init__(self, argv_for, startup: float = 600.0, timeout: float | None = None):
         self._argv_for = argv_for
         self.startup = startup
         self.timeout = timeout

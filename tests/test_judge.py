@@ -215,6 +215,7 @@ class JudgeTests(unittest.TestCase):
 
     def test_engine_crash_and_out_of_contract_answer_exit_5(self) -> None:
         for answer, message in (("crash", "the engine exited during startup (status 3)"),
+                                ("die", "the engine failed on /completion"),
                                 ("x", "the engine answered 'x', not 0 or 1")):
             with self.subTest(answer=answer):
                 code, out, err = self.judge("--model-id", "qwen3.5-0.8b", "Is it on?",
@@ -224,6 +225,13 @@ class JudgeTests(unittest.TestCase):
                 if answer == "crash":
                     # The engine's own last log lines say why.
                     self.assertIn("fake engine: failed to load model", err)
+                if answer == "die":
+                    self.assertIn("fake engine: killed during the prompt", err)
+
+    def test_a_long_prompt_has_no_read_timeout(self) -> None:
+        # llama-server sends nothing while it reads a long prompt; a near-limit
+        # input on a slow machine can take hours. Engine death ends the wait.
+        self.assertIsNone(judge.Engine(lambda sock: []).timeout)
 
     def test_usage_errors_exit_2(self) -> None:
         for argv, message in ((["--model-id", "qwen3.5-0.8b"], "not both or neither"),

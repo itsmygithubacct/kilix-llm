@@ -6,7 +6,8 @@ named by --host, with one token per character and a fixed chat template.
 Both append what they were given to FAKE_LOG (JSON lines), so a test can
 check the exact argv and request bodies. No model, no network.
 
-FAKE_ANSWER: "0", "1", "x" (outside the contract) or "crash" (exit at startup).
+FAKE_ANSWER: "0", "1", "x" (outside the contract), "crash" (exit at startup) or
+"die" (exit without answering, mid-completion).
 FAKE_LOGPROBS: JSON list of [token, logprob] candidates for the answer.
 """
 
@@ -63,6 +64,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.reply({"content": "".join(chr(t) for t in body["tokens"])})
         elif self.path == "/completion":
             answer = os.environ.get("FAKE_ANSWER", "0")
+            if answer == "die":
+                print("fake engine: killed during the prompt", file=sys.stderr, flush=True)
+                os._exit(9)
             candidates = json.loads(os.environ.get("FAKE_LOGPROBS", '[["0", -0.5], ["1", -1.5]]'))
             self.reply({
                 "content": answer,
