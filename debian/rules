@@ -28,6 +28,8 @@ override_dh_auto_install:
 	find $(D) -depth -name __pycache__ -type d -exec rm -rf {} +
 	find $(D) -type f -name '*.pyc' -delete
 	install -m 0755 packaging/kilix-llm $(D)/usr/bin/kilix-llm
+	chmod -R a+rX $(D)
+	chmod a+x $(D)/usr/bin/kilix-llm
 	test ! -e $(S)/third_party/llama.cpp
 	test ! -d $(S)/lab
 	test ! -d $(S)/tests
