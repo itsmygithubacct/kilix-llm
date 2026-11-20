@@ -1,0 +1,11 @@
+#!/bin/sh
+# System Python entry for the packaged tree. The checkout launcher is separate.
+set -eu
+ROOT=$(CDPATH= cd -- "$(dirname "$0")/../share/kilix-llm" && pwd)
+if [ -n "${PYTHONPATH:-}" ]; then
+    PYTHONPATH="$ROOT/src:$PYTHONPATH"
+else
+    PYTHONPATH="$ROOT/src"
+fi
+export PYTHONPATH
+exec python3 -m kilix_llm "$@"

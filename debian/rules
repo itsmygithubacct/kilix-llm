@@ -1,0 +1,36 @@
+#!/usr/bin/make -f
+# Modules, the pin, and the scripts install under /usr/share/kilix-llm.
+# The command uses system Python. Model weights and the llama.cpp tree are
+# not installed. The checkout launcher and install.sh stay as they are.
+# The image has no git and no uv, so the suite runs outside this build.
+# This step checks the system-Python command against the tree being packaged.
+
+export DEB_BUILD_OPTIONS := noautodbgsym
+
+D := debian/kilix-llm
+S := $(D)/usr/share/kilix-llm
+
+%:
+	dh $@
+
+override_dh_auto_build:
+
+override_dh_auto_test:
+	python3 packaging/smoke.py
+
+override_dh_auto_install:
+	install -d $(S)/src $(S)/third_party $(S)/scripts $(S)/patches $(D)/usr/bin
+	cp -a src/kilix_llm $(S)/src/
+	cp -a scripts/. $(S)/scripts/
+	cp -a patches/. $(S)/patches/
+	cp -a third_party/llama.cpp.pin $(S)/third_party/llama.cpp.pin
+	cp -a VERSION LICENSE $(S)/
+	find $(D) -depth -name __pycache__ -type d -exec rm -rf {} +
+	find $(D) -type f -name '*.pyc' -delete
+	install -m 0755 packaging/kilix-llm $(D)/usr/bin/kilix-llm
+	test ! -e $(S)/third_party/llama.cpp
+	test ! -d $(S)/lab
+	test ! -d $(S)/tests
+	test -f $(S)/third_party/llama.cpp.pin
+	test -f $(S)/VERSION
+	test -x $(D)/usr/bin/kilix-llm

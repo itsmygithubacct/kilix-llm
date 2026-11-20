@@ -1,0 +1,18 @@
+Source: kilix-llm
+Section: python
+Priority: optional
+Maintainer: itsmygithubacct <itsmygithubacct@users.noreply.github.com>
+Build-Depends: debhelper-compat (= 13), python3
+Standards-Version: 4.7.2
+Homepage: https://github.com/itsmygithubacct/kilix-llm
+Vcs-Git: https://github.com/itsmygithubacct/kilix-llm.git
+Vcs-Browser: https://github.com/itsmygithubacct/kilix-llm
+Rules-Requires-Root: no
+
+Package: kilix-llm
+Architecture: all
+Depends: python3, ${misc:Depends}
+Description: local language-model launcher
+ kilix-llm installs its modules, pin, and scripts under /usr/share/kilix-llm.
+ The command uses the system Python interpreter. Model weights and the
+ llama.cpp sources stay outside the package.
