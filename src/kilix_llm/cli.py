@@ -5,11 +5,12 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 
-from . import __version__, help_acceptance, help_query, models, paths, pin, runtime, vm
+from . import __version__, help_acceptance, help_query, models, paths, pin, runtime, updates, vm
 
 PROG = "kilix-llm"
 
@@ -26,6 +27,8 @@ def handle(error: Exception) -> None:
         die(str(error), error.code)
     if isinstance(error, pin.PinError):
         die(str(error), 2)
+    if isinstance(error, updates.UpdateError):
+        die(str(error), error.code)
     raise error
 
 
@@ -87,7 +90,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     checked_out = runtime.vendor_commit() or "no nested git"
     built = []
     for name in runtime.BINARIES:
-        path = os.path.join(paths.bin_dir(args.backend), name)
+        path = os.path.join(runtime.runtime_bin_dir(args.backend), name)
         built.append(name if os.path.isfile(path) else f"{name} (not built)")
     try:
         model = models.resolve()
@@ -100,6 +103,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     if loaded is not None and checked_out not in ("no nested git", loaded.commit):
         print("            checkout does not match pin commit")
     print(f"build:      {paths.build_dir(args.backend)} ({args.backend})")
+    print(f"runtime:    {describe_runtime()}")
     print(f"binaries:   {', '.join(built)}")
     print(f"cores:      {runtime.physical_cores()} physical")
     print(
@@ -154,12 +158,180 @@ def cmd_build(args: argparse.Namespace) -> int:
             4,
         )
     runtime.require_vendor()
+    if args.if_needed and updates.current() is not None:
+        # After an update the runtime in use is that release's build, so
+        # --if-needed means that one has this backend, not the pin.
+        with explicit_build():
+            runtime.ensure_built(args.backend)
+        return 0
     argv = [runtime.BUILD_SCRIPT, "--backend", args.backend]
     if args.if_needed:
         argv.append("--if-needed")
     if args.keep_build_tree:
         argv.append("--keep-build-tree")
     return subprocess.call(argv)
+
+
+def describe_runtime() -> str:
+    generation = updates.current()
+    if generation is None:
+        return f"pinned llama.cpp {pin_commit_short()} (built from this checkout)"
+    return (f"llama.cpp {generation.release.tag} ({generation.release.commit[:12]}), "
+            f"updated {generation.built or 'at an unknown time'}; "
+            f"backends: {', '.join(generation.backends) or 'none'}")
+
+
+def pin_commit_short() -> str:
+    return updates.pinned_commit()[:12] or "unknown"
+
+
+def built_backends() -> list[str]:
+    """Backends the runtime in use has, so an update rebuilds the same set."""
+    generation = updates.current()
+    if generation is not None:
+        return [b for b in generation.backends if generation.has(b)]
+    return [b for b in runtime.BACKENDS if runtime.build_current(b)]
+
+
+def update_status() -> tuple[str, updates.Release, bool]:
+    latest = updates.latest_release()
+    generation = updates.current()
+    if generation is not None:
+        installed = f"{generation.release.tag} ({generation.release.commit[:12]})"
+        newer = latest.number > generation.release.number
+    else:
+        installed = f"the pinned commit {pin_commit_short()}"
+        newer = latest.commit != updates.pinned_commit()
+    return installed, latest, newer
+
+
+def cmd_runtime(args: argparse.Namespace) -> int:
+    generation = updates.current()
+    back = updates.previous()
+    if args.json:
+        def record(g: updates.Generation | None) -> dict | None:
+            if g is None:
+                return None
+            return {"tag": g.release.tag, "commit": g.release.commit, "built": g.built,
+                    "backends": list(g.backends), "path": g.path}
+        print(json.dumps({
+            "pinned_commit": updates.pinned_commit(),
+            "current": record(generation),
+            "previous": record(back),
+            "rollback_to": None if generation is None else ("previous" if back else "pinned"),
+            "runtime_dir": updates.runtime_root(),
+        }, sort_keys=True))
+        return 0
+    print(f"in use:     {describe_runtime()}")
+    if generation is None:
+        if back is not None:
+            print(f"kept:       llama.cpp {back.release.tag} ({back.release.commit[:12]}); "
+                  f"`{PROG} update` switches back to it without rebuilding while it is the newest")
+    elif back is not None:
+        print(f"rollback:   llama.cpp {back.release.tag} ({back.release.commit[:12]})")
+    else:
+        print(f"rollback:   the pinned llama.cpp {pin_commit_short()}")
+    print(f"directory:  {updates.runtime_root()}")
+    return 0
+
+
+def cmd_update(args: argparse.Namespace) -> int:
+    installed, latest, newer = update_status()
+    if args.check:
+        if newer:
+            print(f"update available: llama.cpp {latest.tag} ({latest.commit[:12]}); "
+                  f"installed: {installed}")
+            return 10
+        print(f"up to date: llama.cpp {installed}")
+        return 0
+    backends = sorted(set(built_backends()) | set(args.backend or ()) or {"cpu"})
+    generation = updates.current()
+    if not newer and (
+        generation is None or all(generation.has(b) for b in backends)
+    ):
+        print(f"up to date: llama.cpp {installed}")
+        return 0
+    for backend in backends:
+        missing = runtime.missing_build_packages(backend)
+        if missing:
+            die(f"building the {backend} runtime needs: {', '.join(missing)}\n"
+                f"            On Debian:  sudo apt-get install {' '.join(missing)}", 4)
+    print(f"{PROG}: updating llama.cpp from {installed} to {latest.tag} "
+          f"({latest.commit[:12]}); backends: {', '.join(backends)}", file=sys.stderr, flush=True)
+    result = updates.update(backends, runtime.BUILD_SCRIPT, latest, verify=check_flags)
+    print(f"updated: llama.cpp {result.release.tag} ({result.release.commit[:12]}) is in use; "
+          f"`{PROG} rollback` returns to {installed}")
+    return 0
+
+
+FLAG_CHECK_MODEL = "/nonexistent/kilix-llm-flag-check.gguf"
+
+
+def check_flags(bin_dir: str, backend: str) -> None:
+    """A new llama.cpp must accept every command line kilix-llm builds.
+
+    Each catalogued model's run, chat and serve lines, thinking on and off,
+    against a model path that does not exist: the binary parses the whole
+    line and stops at the model, so this needs no weights. A release that
+    renamed or dropped a flag fails here instead of on someone's first chat.
+    On Vulkan the GPU profile is checked too, on the first device it lists.
+    """
+    cli_bin = os.path.join(bin_dir, "llama-cli")
+    server_bin = os.path.join(bin_dir, "llama-server")
+    profiles = [["--gpu-layers", "0"]]
+    if backend == "vulkan":
+        try:
+            listing = subprocess.run([cli_bin, "--list-devices"], capture_output=True,
+                                     text=True, timeout=60, check=False).stdout
+        except (OSError, subprocess.TimeoutExpired):
+            listing = ""
+        found = re.findall(r"^\s+(\w+\d+): ", listing, re.MULTILINE)
+        if found:
+            profiles.append(["--gpu-layers", "99", "--backend", "vulkan", "--device", found[0]])
+    parser = build_parser()
+    for model_id in models.MODELS:
+        for profile in profiles:
+            for thinking in ([], ["--think"]):
+                for command, binary, builder, extra in (
+                    ("run", cli_bin, run_argv, ["hi"]),
+                    ("chat", cli_bin, chat_argv, []),
+                    ("serve", server_bin, serve_argv, ["--port", "0"]),
+                ):
+                    args = parser.parse_args(
+                        [command, "--model-id", model_id, *profile, *thinking, *extra])
+                    argv = builder(args, binary, FLAG_CHECK_MODEL)
+                    try:
+                        result = subprocess.run(argv, stdin=subprocess.DEVNULL, capture_output=True,
+                                                text=True, timeout=120, check=False)
+                    except (OSError, subprocess.TimeoutExpired) as error:
+                        raise updates.UpdateError(f"{os.path.basename(binary)} did not answer: {error}", 6)
+                    output = result.stdout + result.stderr
+                    if "invalid argument" in output or FLAG_CHECK_MODEL not in output:
+                        detail = [line for line in output.splitlines() if line.strip()]
+                        raise updates.UpdateError(
+                            f"this llama.cpp does not accept kilix-llm's {command} command line "
+                            f"for {model_id} ({' '.join(profile + thinking)}): "
+                            + (detail[-1] if detail else "no output"), 6)
+
+
+def cmd_rollback(_args: argparse.Namespace) -> int:
+    now = updates.rollback()
+    if now is None:
+        print(f"rolled back: the pinned llama.cpp {pin_commit_short()} is in use")
+    else:
+        print(f"rolled back: llama.cpp {now.release.tag} ({now.release.commit[:12]}) is in use")
+    return 0
+
+
+class explicit_build:
+    """ensure_built honours KILIX_LLM_NO_AUTO_BUILD; an explicit build does not."""
+
+    def __enter__(self) -> None:
+        self.saved = os.environ.pop("KILIX_LLM_NO_AUTO_BUILD", None)
+
+    def __exit__(self, *exc: object) -> None:
+        if self.saved is not None:
+            os.environ["KILIX_LLM_NO_AUTO_BUILD"] = self.saved
 
 
 def cmd_devices(args: argparse.Namespace) -> int:
@@ -277,7 +449,7 @@ def exec_cli(args: argparse.Namespace, build) -> int:
         cli = runtime.binary("llama-cli", backend)
         if gpu_layers(args):
             args.device = runtime.select_device(backend, args.device)
-    except (models.ModelError, runtime.RuntimeError_, pin.PinError) as error:
+    except (models.ModelError, runtime.RuntimeError_, pin.PinError, updates.UpdateError) as error:
         handle(error)
         return 1
     argv = build(args, cli, model)
@@ -329,7 +501,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
         server = runtime.binary("llama-server", backend)
         if gpu_layers(args):
             args.device = runtime.select_device(backend, args.device)
-    except (models.ModelError, runtime.RuntimeError_, pin.PinError) as error:
+    except (models.ModelError, runtime.RuntimeError_, pin.PinError, updates.UpdateError) as error:
         handle(error)
         return 1
     argv = serve_argv(args, server, model)
@@ -437,6 +609,23 @@ def build_parser() -> argparse.ArgumentParser:
     build_p.add_argument("--keep-build-tree", action="store_true",
                          help="keep the cmake tree for incremental rebuilds (default: keep bin/ only)")
     build_p.set_defaults(func=cmd_build)
+    runtime_p = sub.add_parser("runtime", help="which llama.cpp build is in use")
+    runtime_p.add_argument("--json", action="store_true")
+    runtime_p.set_defaults(func=cmd_runtime)
+    update_p = sub.add_parser(
+        "update", help="build llama.cpp's newest release and switch to it",
+        description="Build llama.cpp's newest bNNNN release for the backends in use "
+                    "(plus any --backend), check it runs, then switch to it. The build it "
+                    "replaces is kept for rollback.",
+    )
+    update_p.add_argument("--check", action="store_true",
+                          help="only report; exit 10 when an update is available")
+    update_p.add_argument("--backend", action="append", choices=runtime.BACKENDS,
+                          help="also build this backend (repeatable)")
+    update_p.set_defaults(func=cmd_update)
+    sub.add_parser(
+        "rollback", help="switch back to the llama.cpp build before the last update",
+    ).set_defaults(func=cmd_rollback)
     devices_p = sub.add_parser("devices", help="list available GPU device names")
     devices_p.add_argument("--backend", choices=runtime.BACKENDS, default="vulkan")
     devices_p.set_defaults(func=cmd_devices)
@@ -485,6 +674,6 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         return args.func(args)
-    except (models.ModelError, runtime.RuntimeError_, pin.PinError) as error:
+    except (models.ModelError, runtime.RuntimeError_, pin.PinError, updates.UpdateError) as error:
         handle(error)
     return 1

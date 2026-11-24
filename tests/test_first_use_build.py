@@ -115,7 +115,26 @@ class BuildScriptTests(unittest.TestCase):
         self.assertTrue((chosen / "CMakeCache.txt").exists())
 
 
+class MissingPackageTests(unittest.TestCase):
+    def test_vulkan_names_the_compiler_and_both_header_packages(self) -> None:
+        with mock.patch.object(runtime.shutil, "which", return_value="/usr/bin/x"), \
+                mock.patch.object(runtime.os.path, "exists", return_value=False):
+            self.assertEqual(runtime.missing_build_packages("cpu"), [])
+            self.assertEqual(runtime.missing_build_packages("vulkan"),
+                             ["libvulkan-dev", "spirv-headers"])
+        with mock.patch.object(runtime.shutil, "which",
+                               side_effect=lambda name: None if name == "glslc" else "/x"), \
+                mock.patch.object(runtime.os.path, "exists", return_value=True):
+            self.assertEqual(runtime.missing_build_packages("vulkan"), ["glslc"])
+
+
 class EnsureBuiltTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # The pinned build, not an updated generation of this machine's runtime.
+        patcher = mock.patch.object(runtime.updates, "current", return_value=None)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_current_build_runs_nothing(self) -> None:
         with mock.patch.object(runtime, "build_current", return_value=True), \
                 mock.patch.object(runtime.subprocess, "call") as call:

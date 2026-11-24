@@ -8,12 +8,21 @@ import shutil
 import subprocess
 import sys
 
-from . import paths
+from . import paths, updates
 from .pin import PinError, load as load_pin
 
 BINARIES = ("llama-cli", "llama-server", "llama-bench")
 BACKENDS = ("cpu", "vulkan")
 BUILD_SCRIPT = os.path.join(paths.SCRIPTS_DIR, "build-runtime.sh")
+VULKAN_BUILD_FILES = (
+    ("libvulkan-dev", ("/usr/include/vulkan/vulkan.h", "/usr/local/include/vulkan/vulkan.h")),
+    ("spirv-headers", (
+        "/usr/share/cmake/SPIRV-Headers/SPIRV-HeadersConfig.cmake",
+        "/usr/lib/cmake/SPIRV-Headers/SPIRV-HeadersConfig.cmake",
+        "/usr/local/share/cmake/SPIRV-Headers/SPIRV-HeadersConfig.cmake",
+        "/usr/include/spirv/unified1/spirv.hpp",
+    )),
+)
 
 CMAKE_FLAGS = (
     "-DCMAKE_BUILD_TYPE=Release",
@@ -97,8 +106,13 @@ def missing_build_packages(backend: str = "cpu") -> list[str]:
         missing.append("g++")
     if shutil.which("rsync") is None:
         missing.append("rsync")
-    if backend == "vulkan" and shutil.which("glslc") is None:
-        missing.append("glslc")
+    if backend == "vulkan":
+        if shutil.which("glslc") is None:
+            missing.append("glslc")
+        # Debian package names; the files are what ggml-vulkan's CMake asks for.
+        for package, candidates in VULKAN_BUILD_FILES:
+            if not any(os.path.exists(path) for path in candidates):
+                missing.append(package)
     return missing
 
 
@@ -123,7 +137,13 @@ def ensure_built(backend: str = "cpu") -> None:
     for one build (the script locks). KILIX_LLM_NO_AUTO_BUILD=1 keeps the old
     contract: nothing is compiled and `binary` names the build command.
     """
-    if os.environ.get("KILIX_LLM_NO_AUTO_BUILD") == "1" or build_current(backend):
+    if os.environ.get("KILIX_LLM_NO_AUTO_BUILD") == "1":
+        return
+    generation = updates.current()
+    if generation is not None:
+        _ensure_generation_backend(generation, backend)
+        return
+    if build_current(backend):
         return
     missing = missing_build_packages(backend)
     if missing:
@@ -157,10 +177,42 @@ def ensure_built(backend: str = "cpu") -> None:
         )
 
 
+def _ensure_generation_backend(generation: updates.Generation, backend: str) -> None:
+    """An updated runtime built without this backend builds it on first use."""
+    if generation.has(backend):
+        return
+    missing = missing_build_packages(backend)
+    if missing:
+        raise RuntimeError_(
+            f"the {backend} runtime for llama.cpp {generation.release.tag} is not built, "
+            "and building it needs: " + ", ".join(missing)
+            + "\nOn Debian:  sudo apt-get install " + " ".join(missing)
+        )
+    print(
+        f"kilix-llm: first use: building the {backend} runtime for llama.cpp "
+        f"{generation.release.tag}. This happens once and takes a few minutes.",
+        file=sys.stderr, flush=True,
+    )
+    from .cli import check_flags  # the command lines live in cli, which imports this module
+    try:
+        updates.ensure_backend(backend, BUILD_SCRIPT, check_flags)
+    except updates.UpdateError as error:
+        raise RuntimeError_(str(error)) from error
+
+
+def runtime_bin_dir(backend: str = "cpu") -> str:
+    """bin/ of the runtime in use: the updated generation, else the pinned build."""
+    if os.environ.get("KILIX_LLM_BUILD_DIR") is None:
+        generation = updates.current()
+        if generation is not None and generation.has(backend):
+            return generation.bin_dir(backend)
+    return paths.bin_dir(backend)
+
+
 def binary(name: str, backend: str = "cpu") -> str:
     if name not in BINARIES:
         raise RuntimeError_(f"unknown runtime binary {name!r}")
-    path = os.path.join(paths.bin_dir(backend), name)
+    path = os.path.join(runtime_bin_dir(backend), name)
     if not os.path.isfile(path) or not os.access(path, os.X_OK):
         raise RuntimeError_(
             f"{name} is not built ({path} missing).\n"
