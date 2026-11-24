@@ -104,6 +104,42 @@ backend reports no FP16 or matrix-core acceleration. Host tokenization,
 sampling, and approximately 14 MiB of host output/compute buffers still use
 the CPU/RAM; the model weights and caches remain on the GPU.
 
+## Dory through vLLM
+
+NVIDIA's Nemotron Labs Dory1.0 4B is a looped transformer. Its 4-bit NVFP4
+checkpoint is a safetensors file that llama.cpp does not read, so `kilix-llm`
+runs it through [vLLM](https://github.com/vllm-project/vllm), in an environment
+of its own. Nothing here is needed for the GGUF models above.
+
+```bash
+kilix-llm doctor --backend vllm     # the environment, the GPUs, a C compiler, the checkpoint
+kilix-llm build --backend vllm      # vLLM 0.34.0 on Python 3.12; about 11 GB, downloaded once
+kilix-llm pull --model-id dory1.0-4b-nvfp4      # 3.2 GB, OpenMDW-1.1
+kilix-llm serve --model-id dory1.0-4b-nvfp4 --ctx 4096 --kv-cache last_loop
+kilix-llm run --model-id dory1.0-4b-nvfp4 'Say hello in one sentence.'
+```
+
+It needs an NVIDIA GPU of compute capability 7.5 or newer (RTX 20-series and
+later) with a driver that supports CUDA 13, and `nvidia-smi`. On a GPU older
+than capability 8.0, vLLM also needs a C compiler (`cc`, `gcc`, `clang`, or
+`CC`) when it starts; `doctor` reports one, and `serve` refuses without it.
+
+`--loops N` sets how many times the recurrent block runs (2 by default; the
+model card benchmarks 1, 2 and 4). `--kv-cache per_loop` keeps one cache per
+loop and is the default; `last_loop` keeps one for all loops and needs less
+memory. Before starting, `serve` and `run` add up the weights, the cache for
+`--ctx` and the runtime's own use, and refuse with the numbers when that is
+more than the GPU has free. One request is served at a time.
+
+On a 6 GB Quadro RTX 3000 with 1.7 GB held by another program, the server
+started and answered at `--ctx 4096 --kv-cache last_loop` using 4.0 GB. The
+weights take 3.3 GB of that. Larger contexts have not been measured yet, and
+`serve` and `run` have been exercised by hand with these flags rather than
+through the launcher end to end.
+
+The server speaks the OpenAI API on `127.0.0.1:8080` under the model name
+`dory1.0-4b`. `chat` is not available for this model; use `serve`.
+
 ## Pi in a persistent QEMU VM
 
 Run [Pi](https://pi.dev/) and its coding tools inside a Debian 13 VM while
@@ -182,7 +218,7 @@ the cause of the slowdown from the earlier short benchmark is unresolved.
 | `kilix-llm doctor` | RAM, cores, pin, vendor tree, binaries, weights |
 | `kilix-llm vendor` | print the llama.cpp pin |
 | `kilix-llm build [--backend vulkan] [--if-needed] [--keep-build-tree]` | compile the CPU or Vulkan runtime (`--if-needed`: only when not built for this pin) |
-| `kilix-llm devices` | list GPU names for `--device` |
+| `kilix-llm devices` | list GPU names for `--device` (`--backend vllm`: NVIDIA GPUs as `CUDA0`, ...) |
 | `kilix-llm pull [--model-id ID]` | download a catalogued GGUF (resumable): `qwen3.8-27b`, `qwen3.5-4b`, `qwen-0.8b-no-loop-02` |
 | `kilix-llm verify` | size + sha256 of the weights |
 | `kilix-llm path` | where the weights resolve |
