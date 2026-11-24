@@ -30,6 +30,12 @@ LAUNCHER = os.path.join(paths.REPO_DIR, "kilix-llm")
 # memory.used --format=csv,noheader,nounits`, captured 2026-11-24.
 SMI_QUADRO = "0, Quadro RTX 3000, 7.5, 6144, 392, 1713\n"
 SMI_RTX3070 = "0, NVIDIA GeForce RTX 3070, 8.6, 8192, 334, 3825\n"
+# Rented cards with nothing else on them.
+SMI_RTX3070_CLEAR = "0, NVIDIA GeForce RTX 3070, 8.6, 8192, 350, 4\n"
+SMI_RTX3090_CLEAR = "0, NVIDIA GeForce RTX 3090, 8.6, 24576, 400, 1\n"
+# A rented card with another process holding memory, as plebtop's 6 GB card
+# would have free when clear.
+SMI_RTX2070S_HELD = "0, NVIDIA GeForce RTX 2070 SUPER, 7.5, 8192, 407, 2046\n"
 
 FAKE_UV = r"""#!/usr/bin/env bash
 set -euo pipefail
@@ -136,7 +142,22 @@ class KvCacheTests(unittest.TestCase):
         # against 0.36 needed, and accepted the same with 16 MiB more.
         self.assertEqual(vllm_runtime.kv_cache_bytes(DORY, 4096, 2, "last_loop"), 379_256_832)
         self.assertEqual(
-            vllm_runtime.kv_cache_reservation(DORY, 4096, 2, "last_loop"), 396_034_048)
+            vllm_runtime.kv_cache_reservation(DORY, 4096, 2, "last_loop"), 397_082_624)
+
+    def test_the_margin_grows_with_the_number_of_cached_layers(self) -> None:
+        layers = vllm_runtime.cached_layers
+        self.assertEqual(layers(DORY, 1, "per_loop"), 36)
+        self.assertEqual(layers(DORY, 4, "last_loop"), 36)
+        self.assertEqual(layers(DORY, 2, "per_loop"), 56)
+        self.assertEqual(layers(DORY, 4, "per_loop"), 96)
+        slack = vllm_runtime.kv_cache_slack
+        self.assertEqual(slack(DORY, 2, "last_loop"), 17_825_792)
+        self.assertEqual(slack(DORY, 2, "per_loop"), 23_068_672)
+        # Four loops with a cache each: vLLM refused 8,192 tokens with 16 MiB
+        # extra ("estimated maximum model length is 8128") and started with 32.
+        self.assertEqual(slack(DORY, 4, "per_loop"), 33_554_432)
+        self.assertEqual(
+            vllm_runtime.kv_cache_reservation(DORY, 8192, 4, "per_loop"), 1_447_559_168)
 
     def test_serving_arguments_are_bounded(self) -> None:
         vllm_runtime.check_serving_args(DORY, 1, "per_loop", 256)
@@ -202,32 +223,112 @@ class ServingTests(unittest.TestCase):
             "kv_cache_memory_bytes": vllm_runtime.kv_cache_reservation(DORY, ctx, loops, mode),
         }
 
-    def test_accepts_the_request_that_ran_beside_another_server(self) -> None:
-        # 4,096 tokens, one cache for both loops, on 4,039 MiB free: 3,349
-        # weights, 378 cache and 300 runtime make 4,027.
-        self.assertEqual(vllm_runtime.gpu_need_mib(DORY, 4096, 2, "last_loop"), 4027)
+    def test_adds_up_weights_cache_and_the_runtime_overhead_for_the_card(self) -> None:
+        # 16,384 tokens, one cache for both loops: 3,349 weights, 811 cache,
+        # and 400 runtime on a card up to 8 GiB or 540 on a larger one.
+        need = vllm_runtime.gpu_need_mib
+        self.assertEqual(need(DORY, 16_384, 2, "last_loop", 6144), 4560)
+        self.assertEqual(need(DORY, 16_384, 2, "last_loop", 8192), 4560)
+        self.assertEqual(need(DORY, 16_384, 2, "last_loop", 8193), 4700)
+        self.assertEqual(need(DORY, 16_384, 2, "last_loop", 24576), 4700)
+
+    def test_a_small_cache_does_not_lower_the_need_below_what_compiling_holds(self) -> None:
+        # A rented RTX 3070 held 4,310 MiB while vLLM compiled, before any
+        # cache existed, and gave 604 back afterwards. 4,096 tokens want a
+        # 379 MiB cache; 3,349 + 610 + 400 is what the start needs.
+        need = vllm_runtime.gpu_need_mib
+        self.assertEqual(need(DORY, 256, 2, "last_loop", 8192), 4359)
+        self.assertEqual(need(DORY, 4096, 2, "last_loop", 8192), 4359)
+        self.assertEqual(need(DORY, 8192, 2, "last_loop", 8192), 4359)
+        # 12,288 tokens want 667 MiB, more than compiling holds.
+        self.assertEqual(need(DORY, 12_288, 2, "last_loop", 8192), 4416)
+        self.assertEqual(need(DORY, 4096, 2, "last_loop", 24576), 4499)
+
+    def test_accepts_what_ran_on_a_clear_card_and_refuses_what_ran_out(self) -> None:
+        # A rented RTX 3070 with 7,838 MiB free. With one cache for both loops
+        # 106,496 tokens ran and 112,640 did not start; with a cache per loop
+        # 65,536 ran and 69,632 ran out of memory when the context filled.
+        clear = vllm_runtime.parse_gpus(SMI_RTX3070_CLEAR)[0]
+        self.assertEqual(clear["free_mib"], 7838)
+        self.assertEqual(vllm_runtime.gpu_need_mib(DORY, 106_496, 2, "last_loop", 8192), 7728)
+        self.assertEqual(vllm_runtime.gpu_need_mib(DORY, 112_640, 2, "last_loop", 8192), 7944)
+        self.assertEqual(vllm_runtime.gpu_need_mib(DORY, 65_536, 2, "per_loop", 8192), 7694)
+        self.assertEqual(vllm_runtime.gpu_need_mib(DORY, 69_632, 2, "per_loop", 8192), 7918)
         with mock.patch.object(vllm_runtime, "c_compiler", return_value="/usr/bin/cc"):
-            vllm_runtime.preflight(self.quadro, DORY, 4096, 2, "last_loop")
+            vllm_runtime.preflight(clear, DORY, 106_496, 2, "last_loop")
+            vllm_runtime.preflight(clear, DORY, 65_536, 2, "per_loop")
+            for ctx, mode in ((112_640, "last_loop"), (69_632, "per_loop")):
+                with self.assertRaisesRegex(runtime.RuntimeError_, "400 runtime"):
+                    vllm_runtime.preflight(clear, DORY, ctx, 2, mode)
+
+    def test_a_larger_card_is_charged_the_larger_overhead(self) -> None:
+        # The whole 256K context with one cache for both loops ran on a rented
+        # RTX 3090 holding 13,301 MiB while it filled.
+        clear = vllm_runtime.parse_gpus(SMI_RTX3090_CLEAR)[0]
+        self.assertEqual(vllm_runtime.gpu_need_mib(DORY, 262_144, 2, "last_loop", 24576), 13_340)
+        with mock.patch.object(vllm_runtime, "c_compiler", return_value="/usr/bin/cc"):
+            vllm_runtime.preflight(clear, DORY, 262_144, 2, "last_loop")
+            with self.assertRaisesRegex(runtime.RuntimeError_, "540 runtime"):
+                vllm_runtime.preflight(clear, DORY, 262_144, 4, "per_loop")
+
+    def test_refuses_any_context_when_compiling_alone_does_not_fit(self) -> None:
+        # On the Quadro with 4,039 MiB free vLLM started 4,096 tokens only
+        # with --enforce-eager, which the launcher does not use; compiled, it
+        # stopped for want of 640 MiB. A smaller context would not help, so
+        # the refusal does not suggest one, whatever context was asked for.
+        for ctx in (256, 4096, 8192):
+            with mock.patch.object(vllm_runtime, "c_compiler", return_value="/usr/bin/cc"), \
+                    self.assertRaises(runtime.RuntimeError_) as caught:
+                vllm_runtime.preflight(self.quadro, DORY, ctx, 2, "per_loop")
+            self.assertEqual(str(caught.exception), (
+                "Nemotron Labs Dory1.0 4B NVFP4 (GPU, vLLM) needs at least 4359 MiB on CUDA0 "
+                "(3349 weights, 610 while it compiles at start, 400 runtime), but only "
+                "4039 of 6144 MiB is free to it.\n"
+                "Try stopping what holds the other 1713 MiB."))
 
     def test_refuses_what_does_not_fit_and_says_what_would(self) -> None:
-        with mock.patch.object(vllm_runtime, "c_compiler", return_value="/usr/bin/cc"), \
-                self.assertRaises(runtime.RuntimeError_) as caught:
-            vllm_runtime.preflight(self.quadro, DORY, 8192, 2, "per_loop")
-        self.assertEqual(str(caught.exception), (
-            "Nemotron Labs Dory1.0 4B NVFP4 (GPU, vLLM) needs about 4452 MiB on CUDA0 "
-            "(3349 weights, "
-            "803 cache for 8192 tokens at 2 loop(s) per_loop, 300 runtime), but only "
-            "4039 of 6144 MiB is free to it.\n"
-            "Try a smaller --ctx, or --kv-cache last_loop, or stopping what holds the "
-            "other 1713 MiB."))
+        clear = vllm_runtime.parse_gpus(SMI_RTX3070_CLEAR)[0]
+        title = "Nemotron Labs Dory1.0 4B NVFP4 (GPU, vLLM)"
+        for ctx, mode, text in (
+            (112_640, "last_loop",
+             f"{title} needs about 7944 MiB on CUDA0 (3349 weights, 4195 cache for 112640 "
+             "tokens at 2 loop(s) last_loop, 400 runtime), but only 7838 of 8192 MiB is "
+             "free to it.\nTry a smaller --ctx."),
+            (69_632, "per_loop",
+             f"{title} needs about 7918 MiB on CUDA0 (3349 weights, 4169 cache for 69632 "
+             "tokens at 2 loop(s) per_loop, 400 runtime), but only 7838 of 8192 MiB is "
+             "free to it.\nTry a smaller --ctx, or --kv-cache last_loop."),
+        ):
+            with mock.patch.object(vllm_runtime, "c_compiler", return_value="/usr/bin/cc"), \
+                    self.assertRaises(runtime.RuntimeError_) as caught:
+                vllm_runtime.preflight(clear, DORY, ctx, 2, mode)
+            self.assertEqual(str(caught.exception), text)
 
-    def test_an_older_gpu_needs_a_c_compiler_and_a_newer_one_does_not(self) -> None:
+    def test_beside_another_program_it_accepts_what_ran_and_names_the_other_use(self) -> None:
+        # With 5,739 MiB free `kilix-llm serve` ran 49,152 tokens, filled.
+        held = vllm_runtime.parse_gpus(SMI_RTX2070S_HELD)[0]
+        self.assertEqual(held["free_mib"], 5739)
+        with mock.patch.object(vllm_runtime, "c_compiler", return_value="/usr/bin/cc"):
+            vllm_runtime.preflight(held, DORY, 49_152, 2, "last_loop")
+            with self.assertRaises(runtime.RuntimeError_) as caught:
+                vllm_runtime.preflight(held, DORY, 50_176, 2, "last_loop")
+        self.assertEqual(str(caught.exception), (
+            "Nemotron Labs Dory1.0 4B NVFP4 (GPU, vLLM) needs about 5748 MiB on CUDA0 "
+            "(3349 weights, 1999 cache for 50176 tokens at 2 loop(s) last_loop, 400 runtime), "
+            "but only 5739 of 8192 MiB is free to it.\n"
+            "Try a smaller --ctx, or stopping what holds the other 2046 MiB."))
+
+    def test_every_gpu_needs_a_c_compiler(self) -> None:
+        # Seen on compute capability 7.5 and 8.6: without one the engine dies
+        # after loading the weights.
         with mock.patch.object(vllm_runtime, "c_compiler", return_value=None):
-            with self.assertRaisesRegex(
-                    runtime.RuntimeError_,
-                    r"needs a C compiler to run on CUDA0 \(Quadro RTX 3000\)"):
-                vllm_runtime.preflight(self.quadro, DORY, 4096, 2, "last_loop")
-            vllm_runtime.preflight(self.rtx3070, DORY, 4096, 2, "last_loop")
+            for gpu in (self.quadro, self.rtx3070):
+                with self.assertRaisesRegex(
+                        runtime.RuntimeError_, "vLLM needs a C compiler to start"):
+                    vllm_runtime.preflight(gpu, DORY, 4096, 2, "last_loop")
+        with mock.patch.object(vllm_runtime, "c_compiler", return_value="/usr/bin/cc"):
+            vllm_runtime.preflight(
+                vllm_runtime.parse_gpus(SMI_RTX3070_CLEAR)[0], DORY, 4096, 2, "last_loop")
 
     def test_finds_the_compiler_cc_names_or_one_on_path(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -258,7 +359,7 @@ class ServingTests(unittest.TestCase):
             "--max-num-seqs", "1",
             "--max-num-batched-tokens", "512",
             "--gpu-memory-utilization", "0.54",
-            "--kv-cache-memory-bytes", "396034048",
+            "--kv-cache-memory-bytes", "397082624",
             "--reasoning-parser", "nemotron_v3",
             "--enable-auto-tool-choice",
             "--tool-call-parser", "qwen3_coder",
@@ -277,7 +378,7 @@ class ServingTests(unittest.TestCase):
             "model": "/store/dory", "served_name": "dory1.0-4b",
             "hf_overrides": {"n_recurrent_loops": 4, "recurrent_kv_cache_mode": "per_loop"},
             "ctx": 8192, "batch_tokens": 512, "gpu_memory_utilization": 0.4,
-            "kv_cache_memory_bytes": 1_430_781_952, "max_tokens": 64,
+            "kv_cache_memory_bytes": 1_447_559_168, "max_tokens": 64,
             "prompt": "hello", "think": True,
         })
         self.assertEqual(

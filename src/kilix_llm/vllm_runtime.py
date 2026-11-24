@@ -37,8 +37,8 @@ KV_MODES = ("per_loop", "last_loop")
 # two prefill batches in flight at once.
 KV_BLOCK_TOKENS = 16
 CONCURRENT_BATCHES = 2
-# vLLM's attention backend below this compute capability is its Triton one.
-TRITON_ATTENTION_BELOW = 80
+# Cards with more memory than this take the larger runtime overhead.
+LARGE_GPU_ABOVE_MIB = 8192
 
 # Sizes and SHA-256 identify the exact files at the pinned revision.
 MODELS = {
@@ -93,12 +93,18 @@ MODELS = {
         # Prompt tokens processed per step. A sliding layer keeps its window
         # plus the batches in flight, so a smaller batch also means less cache.
         "batch_tokens": 512,
-        # Added to the computed cache: vLLM rounds up to whole pages.
-        "kv_cache_slack_mib": 16,
-        # Measured with vLLM 0.34.0 on a Quadro RTX 3000: the weights as vLLM
-        # reports them, and what one server held beyond weights and cache.
+        # Measured with vLLM 0.34.0: the weights as vLLM reports them, and
+        # what one server held beyond weights and cache. That was 290 to 394
+        # MiB on 6 GB and 8 GB cards (Quadro RTX 3000, RTX 2070 SUPER, RTX
+        # 3070) and 469 to 520 MiB on a 24 GB RTX 3090; nothing between those
+        # sizes was measured, so every card over 8 GiB gets the larger figure.
         "weights_mib": 3349,
-        "overhead_mib": 300,
+        "overhead_mib": 400,
+        "overhead_large_gpu_mib": 540,
+        # While vLLM compiles the model at start it holds about 604 MiB that
+        # it gives back when the cache is allocated, so a start needs whichever
+        # of the two is larger.
+        "compile_mib": 610,
     },
 }
 
@@ -393,20 +399,51 @@ def check_serving_args(model_id: str, loops: int, mode: str, ctx: int) -> None:
         raise ModelError(f"--ctx must be at least 256 tokens, not {ctx}")
 
 
+def cached_layers(model_id: str, loops: int, mode: str) -> int:
+    """Attention sublayers that keep a cache of their own."""
+    passes = loops if mode == "per_loop" else 1
+    return sum(
+        (kinds["full"] + kinds["sliding"]) * (passes if block == "recurrent" else 1)
+        for block, kinds in spec(model_id)["attention"].items())
+
+
+def kv_cache_slack(model_id: str, loops: int, mode: str) -> int:
+    """Bytes added to the computed cache.
+
+    vLLM wants a little more than the sum of its layers' blocks, and the
+    amount grows with the number of cached layers: nothing extra was refused
+    for 36 layers, 16 MiB was enough for 36 and 56, and 16 MiB was about 7 MiB
+    short for 96.
+    """
+    return max(16, cached_layers(model_id, loops, mode) // 4 + 8) * MIB
+
+
 def kv_cache_reservation(model_id: str, ctx: int, loops: int, mode: str) -> int:
     """Bytes handed to vLLM for the cache: the computed need and its slack."""
-    return kv_cache_bytes(model_id, ctx, loops, mode) + spec(model_id)["kv_cache_slack_mib"] * MIB
+    return kv_cache_bytes(model_id, ctx, loops, mode) + kv_cache_slack(model_id, loops, mode)
 
 
-def gpu_need_mib(model_id: str, ctx: int, loops: int, mode: str) -> int:
-    """GPU memory one server needs: weights, runtime overhead, and the cache."""
+def runtime_overhead_mib(model_id: str, total_mib: int) -> int:
+    """What the server holds beyond weights and cache on a card of this size."""
+    record = spec(model_id)
+    if total_mib > LARGE_GPU_ABOVE_MIB:
+        return record["overhead_large_gpu_mib"]
+    return record["overhead_mib"]
+
+
+def gpu_need_mib(model_id: str, ctx: int, loops: int, mode: str, total_mib: int) -> int:
+    """GPU memory one server needs: weights, runtime overhead, and the cache.
+
+    A cache smaller than what compiling holds does not lower the need.
+    """
     record = spec(model_id)
     cache = -(-kv_cache_reservation(model_id, ctx, loops, mode) // MIB)
-    return record["weights_mib"] + record["overhead_mib"] + cache
+    return (record["weights_mib"] + runtime_overhead_mib(model_id, total_mib)
+            + max(cache, record["compile_mib"]))
 
 
 def c_compiler() -> str | None:
-    """The C compiler Triton would use: `CC`, else cc, gcc or clang on PATH."""
+    """The C compiler vLLM's Triton kernels need: `CC`, else cc, gcc or clang on PATH."""
     named = os.environ.get("CC")
     if named:
         return shutil.which(named)
@@ -415,13 +452,6 @@ def c_compiler() -> str | None:
         if found:
             return found
     return None
-
-
-def needs_c_compiler(gpu: dict) -> bool:
-    """Below capability 8.0 vLLM runs attention through Triton, which compiles
-    a small C launcher the first time it runs. Without a compiler the server
-    dies during start-up, after the weights have loaded."""
-    return gpu["compute_cap"] < TRITON_ATTENTION_BELOW
 
 
 def preflight(gpu: dict, model_id: str, ctx: int, loops: int, mode: str) -> None:
@@ -434,27 +464,38 @@ def preflight(gpu: dict, model_id: str, ctx: int, loops: int, mode: str) -> None
             f"{gpu['compute_cap'] // 10}.{gpu['compute_cap'] % 10}; {record['title']} "
             f"needs {minimum // 10}.{minimum % 10} or newer"
         )
-    if needs_c_compiler(gpu) and c_compiler() is None:
+    if c_compiler() is None:
+        # Triton builds a small C launcher the first time one of its kernels
+        # runs. Without a compiler the server dies after loading the weights;
+        # seen on compute capability 7.5 and 8.6.
         raise RuntimeError_(
-            f"vLLM needs a C compiler to run on {gpu['device']} ({gpu['name']}): "
-            "none of cc, gcc or clang is on PATH and CC names none.\n"
-            "Install gcc, or set CC to a compiler."
+            "vLLM needs a C compiler to start: none of cc, gcc or clang is on PATH "
+            "and CC names none.\nInstall gcc, or set CC to a compiler."
         )
-    need = gpu_need_mib(model_id, ctx, loops, mode)
+    need = gpu_need_mib(model_id, ctx, loops, mode, gpu["total_mib"])
     free = gpu["free_mib"]
     if need > free:
         cache = -(-kv_cache_reservation(model_id, ctx, loops, mode) // MIB)
-        hints = ["a smaller --ctx"]
-        if mode == "per_loop" and loops > 1:
-            hints.append("--kv-cache last_loop")
+        overhead = runtime_overhead_mib(model_id, gpu["total_mib"])
+        least = record["weights_mib"] + overhead + record["compile_mib"]
+        hints = []
+        if least > free:
+            # No context is small enough: compiling alone needs more.
+            need, amount = least, "at least"
+            parts = f"{record['compile_mib']} while it compiles at start"
+        else:
+            amount = "about"
+            parts = f"{cache} cache for {ctx} tokens at {loops} loop(s) {mode}"
+            hints.append("a smaller --ctx")
+            if mode == "per_loop" and loops > 1:
+                hints.append("--kv-cache last_loop")
         if gpu["used_mib"] > 64:
             hints.append(f"stopping what holds the other {gpu['used_mib']} MiB")
+        advice = "\nTry " + ", or ".join(hints) + "." if hints else ""
         raise RuntimeError_(
-            f"{record['title']} needs about {need} MiB on {gpu['device']} "
-            f"({record['weights_mib']} weights, {cache} cache for {ctx} tokens at "
-            f"{loops} loop(s) {mode}, {record['overhead_mib']} runtime), but only "
-            f"{free} of {gpu['total_mib']} MiB is free to it.\nTry "
-            + ", or ".join(hints) + "."
+            f"{record['title']} needs {amount} {need} MiB on {gpu['device']} "
+            f"({record['weights_mib']} weights, {parts}, {overhead} runtime), but only "
+            f"{free} of {gpu['total_mib']} MiB is free to it.{advice}"
         )
 
 

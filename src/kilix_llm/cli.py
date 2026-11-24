@@ -97,11 +97,9 @@ def vllm_doctor() -> int:
     compiler = vllm_runtime.c_compiler()
     if compiler:
         print(f"compiler:   {compiler}")
-    elif any(vllm_runtime.needs_c_compiler(gpu) for gpu in available):
-        print("compiler:   missing; vLLM needs cc, gcc or clang on this GPU")
-        status = 4
     else:
-        print("compiler:   none found")
+        print("compiler:   missing; vLLM needs cc, gcc or clang to start")
+        status = 4
     for model_id in vllm_runtime.MODELS:
         print(f"{model_id}: {vllm_model_status(model_id)}")
     if shutil.which("uv") is None:
