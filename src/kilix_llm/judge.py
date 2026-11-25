@@ -223,6 +223,10 @@ class Engine:
             self._dir.cleanup()
             self._dir = None
 
+    @property
+    def pid(self) -> int | None:
+        return self._process.pid if self._process is not None else None
+
     def log_tail(self, lines: int = 8) -> str:
         if self._log is None:
             return ""
