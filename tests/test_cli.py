@@ -66,7 +66,7 @@ class LauncherTests(unittest.TestCase):
             check=False,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("commit=8ea290247c87ced2ab245b056ffe96dbcf90d36c", result.stdout)
+        self.assertIn("commit=b1b770d90d94cad9e9ea5b993bdbc383a522fb28", result.stdout)
         self.assertIn("url=https://github.com/ggml-org/llama.cpp.git", result.stdout)
 
     def test_run_refuses_a_missing_model_and_names_pull(self) -> None:

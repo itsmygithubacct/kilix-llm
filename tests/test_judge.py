@@ -25,7 +25,7 @@ FAKE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fake_engine.py"
 OVERHEAD = 668
 BASE_BYTES = b"stock-base-weights"
 ADAPTER_BYTES = b"binary-adapter"
-PIN_COMMIT = "8ea290247c87ced2ab245b056ffe96dbcf90d36c"
+PIN_COMMIT = "b1b770d90d94cad9e9ea5b993bdbc383a522fb28"
 
 
 def sha(data: bytes) -> str:
