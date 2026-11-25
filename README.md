@@ -57,7 +57,10 @@ missing runtime is then an error that names the build command.
 |---|---|
 | `kilix-llm doctor` | RAM, cores, pin, vendor tree, binaries, weights |
 | `kilix-llm vendor` | print the llama.cpp pin |
-| `kilix-llm build [--backend vulkan] [--if-needed] [--keep-build-tree]` | compile the CPU or Vulkan runtime (`--if-needed`: only when not built for this pin) |
+| `kilix-llm build [--backend vulkan] [--if-needed] [--keep-build-tree]` | compile the CPU or Vulkan runtime (`--if-needed`: only when the runtime in use, pinned or updated, lacks it) |
+| `kilix-llm runtime [--json]` | which llama.cpp build is in use, and what rollback returns to |
+| `kilix-llm update [--check] [--backend B]` | build llama.cpp's newest release and switch to it (`--check`: report only, exit 10 when one is available) |
+| `kilix-llm rollback` | switch back to the build before the last update |
 | `kilix-llm devices` | list GPU names for `--device` |
 | `kilix-llm pull [--model-id ID]` | download a catalogued GGUF (resumable): `qwen3.8-27b`, `qwen3.5-4b`, `qwen-0.8b-no-loop-02` |
 | `kilix-llm verify` | size + sha256 of the weights |
@@ -107,7 +110,11 @@ the stamp, about 25 MB) and removes the cmake tree and the patched source
 copy, about 0.7 GB. Pass `--keep-build-tree` for fast incremental rebuilds
 while changing llama.cpp. A `KILIX_LLM_BUILD_DIR` you chose is never pruned.
 Builds of one backend take a lock, so concurrent first uses compile once. The
-build leaves llama.cpp's prebuilt web UI off and does not fetch it.
+build leaves llama.cpp's prebuilt web UI off and does not fetch it. The CPU
+backend uses OpenBLAS for prompt processing when `pkg-config` finds it
+(`libopenblas-dev` on Debian; `KILIX_LLM_BLAS=off` builds without it). The
+Vulkan backend needs `glslc`, `libvulkan-dev` and `spirv-headers`; a missing
+one is named before anything compiles.
 
 `qwen-0.8b-no-loop-02` is Qwen3.5-0.8B Q8_0 with part of a published weight
 edit applied to reduce thinking-mode loops (Apache-2.0, modified from
@@ -116,6 +123,34 @@ release's model card gives the attribution and results). Thinking mode is not
 recommended for it and is off by default; `--think` prints a warning first.
 `kilix-llm pull` refuses this id: the model wizard installs it with its licence
 notices (`kilix models install qwen-0.8b-no-loop-02`).
+
+## Updating llama.cpp
+
+The pin is the reviewed llama.cpp this checkout builds by default.
+`kilix-llm update` moves past it to llama.cpp's newest release (the `bNNNN`
+tags upstream publishes for each release):
+
+```sh
+kilix-llm update --check   # report; exit 10 when a newer release exists
+kilix-llm update           # build it for the backends in use, then switch
+kilix-llm runtime          # which build is in use
+kilix-llm rollback         # back to the build before the last update
+```
+
+Each release builds into its own generation under
+`~/.local/gpu_terminal/kilix-llm/runtime` (override `KILIX_LLM_RUNTIME_DIR`).
+The update fetches exactly the tagged commit and checks it is the commit it
+asked for. Then it builds the CPU and Vulkan backends the current runtime has,
+plus any `--backend`. Each binary has to start and report that commit. Every
+`run`, `chat` and `serve` command line kilix-llm builds, for every catalogued
+model, has to parse. On Vulkan, the GPU profile is checked as well. If any
+step fails, nothing changes. A release without the Qwen3.5 graph is refused.
+
+Only after all of that does `current` switch to the new generation. The
+previous generation stays as `previous`, or the pinned build does after the
+first update, and older ones are removed. A backend first used after an update
+builds for that release, so it never mixes llama.cpp versions. Patches in the
+pin apply only to the pinned build.
 
 ## Tests
 
