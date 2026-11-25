@@ -49,6 +49,8 @@ def main() -> None:
         for rel in (
             "src/kilix_llm/__main__.py",
             "src/kilix_llm/paths.py",
+            "src/kilix_llm/vllm_runtime.py",
+            "src/kilix_llm/vllm_oneshot.py",
             "third_party/llama.cpp.pin",
             "VERSION",
             "scripts/build-runtime.sh",

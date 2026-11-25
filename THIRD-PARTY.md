@@ -20,4 +20,16 @@ Edits under `third_party/llama.cpp/` are first-class changes in this
 repository. Replayable diffs that should survive an upstream sync belong in
 `patches/` and are listed, with sha256, in the pin file.
 
+## vLLM (not vendored)
+
+[vLLM](https://github.com/vllm-project/vllm) is neither copied into this
+repository nor shipped in its package. `kilix-llm build --backend vllm`
+downloads one pinned release and its dependencies from PyPI into a private uv
+environment in the user's data directory. The pin is in
+[`src/kilix_llm/vllm_runtime.py`](src/kilix_llm/vllm_runtime.py).
+
+- **Licence:** Apache-2.0
+- **Its dependencies** (PyTorch, the NVIDIA CUDA libraries and others) carry
+  their own licences, delivered with each installed distribution.
+
 No model weights are included in this repository.

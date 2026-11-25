@@ -61,7 +61,7 @@ missing runtime is then an error that names the build command.
 | `kilix-llm runtime [--json]` | which llama.cpp build is in use, and what rollback returns to |
 | `kilix-llm update [--check] [--backend B]` | build llama.cpp's newest release and switch to it (`--check`: report only, exit 10 when one is available) |
 | `kilix-llm rollback` | switch back to the build before the last update |
-| `kilix-llm devices` | list GPU names for `--device` |
+| `kilix-llm devices` | list GPU names for `--device` (`--backend vllm`: NVIDIA GPUs as `CUDA0`, ...) |
 | `kilix-llm pull [--model-id ID]` | download a catalogued GGUF (resumable): `qwen3.8-27b`, `qwen3.5-9b`, `qwen3.5-4b`, `qwen3.5-4b-q4km`, `qwen3.5-2b`, `qwen3.5-0.8b`, the d3 decision models `d3-2b`, `d3-4b`, `d3-9b` and `d3-27b`, and `lfm2-1.2b-tool` (each with its licence text where the entry ships one); the wizard-installed `qwen-0.8b-no-loop-02` and unreleased tunings are refused |
 | `kilix-llm verify` | size + sha256 of the weights |
 | `kilix-llm path` | where the weights resolve |
@@ -89,6 +89,11 @@ This repository never ships weights.
 `ask-help` options and the calibrated help path are described in
 [docs/help-module.md](docs/help-module.md); the 4B GPU profile and its
 measured results in [docs/gpu-model.md](docs/gpu-model.md).
+
+NVIDIA's Dory1.0 4B NVFP4 checkpoint is not a GGUF; `kilix-llm` runs it
+through vLLM in an environment of its own (`build --backend vllm`, then
+`pull`/`run`/`serve --model-id dory1.0-4b-nvfp4`). See
+[docs/vllm-dory.md](docs/vllm-dory.md).
 
 ## How it works
 
@@ -195,6 +200,7 @@ Model commands use a uv virtual environment from [lab/scripts/uv-venv.sh](lab/sc
 - [docs/gpu-model.md](docs/gpu-model.md) — the 4B Vulkan profile, build dependencies and validation results
 - [docs/judge.md](docs/judge.md) — `kilix-llm judge`: one yes/no answer as an exit code
 - [docs/stack.md](docs/stack.md) — `kilix-llm stack`: several drafts at once and one judge
+- [docs/vllm-dory.md](docs/vllm-dory.md) — Dory1.0 4B NVFP4 through vLLM (`--backend vllm`, NVIDIA only)
 - [docs/pi-vm.md](docs/pi-vm.md) — the persistent QEMU guest, shared folders and agent sessions
 - [docs/help-module.md](docs/help-module.md) — `ask-help` with kilix-help-llm runs and the calibrated path
 - [docs/vendoring.md](docs/vendoring.md) — moving the llama.cpp pin and carrying patches

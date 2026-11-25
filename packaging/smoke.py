@@ -82,6 +82,12 @@ def main() -> None:
             fail(f"doctor output missing the version or the model state:\n{doctor.stdout}")
         if "8ea290247c87ced2ab245b056ffe96dbcf90d36c" not in doctor.stdout:
             fail(f"doctor did not resolve the pin:\n{doctor.stdout}")
+        vllm = run(["doctor", "--backend", "vllm"])
+        if vllm.returncode not in (0, 4) or "dory1.0-4b-nvfp4:" not in vllm.stdout:
+            fail(f"vllm doctor failed ({vllm.returncode}):\n{vllm.stdout}{vllm.stderr}")
+        oneshot = share / "src/kilix_llm/vllm_oneshot.py"
+        if not oneshot.is_file():
+            fail("the vLLM one-shot script was not staged")
     print("smoke: passed")
 
 
