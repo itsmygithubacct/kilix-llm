@@ -16,7 +16,6 @@ from . import (
 )
 
 PROG = "kilix-llm"
-MODEL_IDS = sorted([*models.MODELS, *vllm_runtime.MODELS])
 BACKENDS = (*runtime.BACKENDS, "vllm")
 
 
@@ -615,11 +614,17 @@ def cmd_serve(args: argparse.Namespace) -> int:
     return 1
 
 
+def model_ids() -> list[str]:
+    # Read when the parser is built, not at import: the llama.cpp catalogue
+    # can gain entries (a tuning, a test adapter) after this module loads.
+    return sorted([*models.MODELS, *vllm_runtime.MODELS])
+
+
 def add_model_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--model-id",
         default=models.DEFAULT_MODEL_ID,
-        choices=MODEL_IDS,
+        choices=model_ids(),
         help="catalog id (default: qwen3.8-27b)",
     )
     parser.add_argument(
