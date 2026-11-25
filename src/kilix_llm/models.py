@@ -131,6 +131,168 @@ MODELS = {
             },
         },
     },
+    # Qwen3.5 sizes the catalogue lacked, as the Ollama library publishes them
+    # (its qwen3.5:2b and qwen3.5:9b text GGUFs; the vision projectors are not
+    # catalogued). These are the files the draft-and-judge measurements used.
+    "qwen3.5-2b": {
+        "title": "Qwen3.5 2B Q8 (GPU)",
+        "file": "Qwen3.5-2B-Q8_0.gguf",
+        "size": 2_012_012_448,
+        "sha256": "e8bf47d40c5ba68baf8f3e503ee36710da6e8641cb0a670a508cff5b3f0cfbf7",
+        "url": "https://registry.ollama.ai/v2/library/qwen3.5/blobs/sha256:e8bf47d40c5ba68baf8f3e503ee36710da6e8641cb0a670a508cff5b3f0cfbf7",
+        "publisher": "registry.ollama.ai/library/qwen3.5:2b",
+        "ctx": 8192,
+        "quant": "Q8_0",
+        "n_gpu_layers": 99,
+        "family": "qwen3.5",
+        "licence": {
+            "id": "Apache-2.0",
+            "notice": "Qwen3.5-2B by Alibaba Cloud (Qwen), Apache-2.0; GGUF from the Ollama library.",
+            "file": {
+                "name": "Qwen3.5-2B-Q8_0.LICENSE",
+                "size": 11_343,
+                "sha256": "50cbab8a892c5f2993b8c7351a99182507472def3b1374558308605d99b86b32",
+                "url": "https://registry.ollama.ai/v2/library/qwen3.5/blobs/sha256:50cbab8a892c5f2993b8c7351a99182507472def3b1374558308605d99b86b32",
+            },
+        },
+    },
+    "qwen3.5-9b": {
+        "title": "Qwen3.5 9B Q4 (GPU)",
+        "file": "Qwen3.5-9B-Q4_K_M.gguf",
+        "size": 5_629_109_120,
+        "sha256": "02d45dc1cf451ba2475ac33b301c2dd8f985abe4c182ce04a1f2f5bf0260278d",
+        "url": "https://registry.ollama.ai/v2/library/qwen3.5/blobs/sha256:02d45dc1cf451ba2475ac33b301c2dd8f985abe4c182ce04a1f2f5bf0260278d",
+        "publisher": "registry.ollama.ai/library/qwen3.5:9b",
+        "ctx": 8192,
+        "quant": "Q4_K_M",
+        "n_gpu_layers": 99,
+        "family": "qwen3.5",
+        "licence": {
+            "id": "Apache-2.0",
+            "notice": "Qwen3.5-9B by Alibaba Cloud (Qwen), Apache-2.0; GGUF from the Ollama library.",
+            "file": {
+                "name": "Qwen3.5-9B-Q4_K_M.LICENSE",
+                "size": 11_343,
+                "sha256": "50cbab8a892c5f2993b8c7351a99182507472def3b1374558308605d99b86b32",
+                "url": "https://registry.ollama.ai/v2/library/qwen3.5/blobs/sha256:50cbab8a892c5f2993b8c7351a99182507472def3b1374558308605d99b86b32",
+            },
+        },
+    },
+    # The smaller quantisation of the 4B from the same unsloth revision as
+    # `qwen3.5-4b`: 0.8 GB less, for a GPU that also holds other models.
+    "qwen3.5-4b-q4km": {
+        "title": "Qwen3.5 4B Q4 (GPU)",
+        "file": "Qwen3.5-4B-Q4_K_M.gguf",
+        "size": 2_740_937_888,
+        "sha256": "00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4",
+        "url": (
+            "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/"
+            "e87f176479d0855a907a41277aca2f8ee7a09523/Qwen3.5-4B-Q4_K_M.gguf"
+        ),
+        "publisher": "unsloth/Qwen3.5-4B-GGUF",
+        "ctx": 8192,
+        "quant": "Q4_K_M",
+        "n_gpu_layers": 99,
+        "family": "qwen3.5",
+    },
+    # d3: decision models, full fine-tunes of Qwen with a 255-way readout in
+    # place of text output. One pass answers a question about the text it is
+    # shown; `/v1/systemone` is the only way to ask, so `run` and `chat` refuse
+    # them and `stack` uses them as the judge. Context is 4,096 tokens. The
+    # files are the Ollama library's d3 text GGUFs; llama.cpp loads them
+    # without the projector the library also ships.
+    "d3-2b": {
+        "title": "d3 2B Q8 decision model (GPU)",
+        "file": "d3-2b-Q8_0.gguf",
+        "size": 2_552_358_464,
+        "sha256": "47d85eed4b76e2613d2b1496f6a106841fc605638f96acf46ef54ad1a9f45707",
+        "url": "https://registry.ollama.ai/v2/library/d3/blobs/sha256:47d85eed4b76e2613d2b1496f6a106841fc605638f96acf46ef54ad1a9f45707",
+        "publisher": "registry.ollama.ai/library/d3:2b",
+        "ctx": 4096,
+        "quant": "Q8_0",
+        "n_gpu_layers": 99,
+        "family": "d3",
+        "tasks": ["decide"],
+        "licence": {
+            "id": "Apache-2.0",
+            "notice": "d3 2B by vllm-sr, fine-tuned from Qwen, Apache-2.0; GGUF from the Ollama library.",
+            "file": {
+                "name": "d3-2b-Q8_0.LICENSE",
+                "size": 11_358,
+                "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+                "url": "https://registry.ollama.ai/v2/library/d3/blobs/sha256:cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+            },
+        },
+    },
+    "d3-4b": {
+        "title": "d3 4B Q8 decision model (GPU)",
+        "file": "d3-4b-Q8_0.gguf",
+        "size": 5_157_835_328,
+        "sha256": "bea9ace37fcca311cf7fa973bfd2b37b1599d771bed23639416a7d73109d5eda",
+        "url": "https://registry.ollama.ai/v2/library/d3/blobs/sha256:bea9ace37fcca311cf7fa973bfd2b37b1599d771bed23639416a7d73109d5eda",
+        "publisher": "registry.ollama.ai/library/d3:4b",
+        "ctx": 4096,
+        "quant": "Q8_0",
+        "n_gpu_layers": 99,
+        "family": "d3",
+        "tasks": ["decide"],
+        "licence": {
+            "id": "Apache-2.0",
+            "notice": "d3 4B by vllm-sr, fine-tuned from Qwen, Apache-2.0; GGUF from the Ollama library.",
+            "file": {
+                "name": "d3-4b-Q8_0.LICENSE",
+                "size": 11_358,
+                "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+                "url": "https://registry.ollama.ai/v2/library/d3/blobs/sha256:cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+            },
+        },
+    },
+    "d3-9b": {
+        "title": "d3 9B Q8 decision model (GPU)",
+        "file": "d3-9b-Q8_0.gguf",
+        "size": 9_527_503_328,
+        "sha256": "2d93d972eace90a0fb8f1c70d34f557a5dad40078f697c8796aee9abfdffeef8",
+        "url": "https://registry.ollama.ai/v2/library/d3/blobs/sha256:2d93d972eace90a0fb8f1c70d34f557a5dad40078f697c8796aee9abfdffeef8",
+        "publisher": "registry.ollama.ai/library/d3:9b",
+        "ctx": 4096,
+        "quant": "Q8_0",
+        "n_gpu_layers": 99,
+        "family": "d3",
+        "tasks": ["decide"],
+        "licence": {
+            "id": "Apache-2.0",
+            "notice": "d3 9B by vllm-sr, fine-tuned from Qwen, Apache-2.0; GGUF from the Ollama library.",
+            "file": {
+                "name": "d3-9b-Q8_0.LICENSE",
+                "size": 11_358,
+                "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+                "url": "https://registry.ollama.ai/v2/library/d3/blobs/sha256:cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+            },
+        },
+    },
+    "d3-27b": {
+        "title": "d3 27B Q8 decision model (GPU)",
+        "file": "d3-27b-Q8_0.gguf",
+        "size": 28_595_765_504,
+        "sha256": "497a0244294a9f2634b3b3fc96f0b9c1662d1c546a4b1642051b292430823ec7",
+        "url": "https://registry.ollama.ai/v2/library/d3/blobs/sha256:497a0244294a9f2634b3b3fc96f0b9c1662d1c546a4b1642051b292430823ec7",
+        "publisher": "registry.ollama.ai/library/d3:27b",
+        "ctx": 4096,
+        "quant": "Q8_0",
+        "n_gpu_layers": 99,
+        "family": "d3",
+        "tasks": ["decide"],
+        "licence": {
+            "id": "Apache-2.0",
+            "notice": "d3 27B by vllm-sr, fine-tuned from Qwen, Apache-2.0; GGUF from the Ollama library.",
+            "file": {
+                "name": "d3-27b-Q8_0.LICENSE",
+                "size": 11_358,
+                "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+                "url": "https://registry.ollama.ai/v2/library/d3/blobs/sha256:cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+            },
+        },
+    },
     # Tunings: LoRA adapters over a stock base above. Each is data only: the
     # base it loads over, the task command that runs it, and its release
     # asset. An entry with no sha256 is not released yet and is refused.
@@ -251,6 +413,15 @@ def require_released(model_id: str) -> None:
         )
 
 
+def require_text(model_id: str) -> None:
+    """Refuse a decision model where a command needs text back."""
+    if spec(model_id).get("family") == "d3":
+        raise ModelError(
+            f"{spec(model_id)['title']} ({model_id}) answers questions through /v1/systemone and "
+            f"writes no text. Use it as a judge:  kilix-llm stack serve --judge {model_id}"
+        )
+
+
 def base_id(model_id: str) -> str | None:
     """The catalogue id an adapter must be loaded over, or None for a full model."""
     return spec(model_id).get("base")
@@ -364,6 +535,7 @@ def verify(model_id: str = DEFAULT_MODEL_ID, override: str | None = None,
 def launch_files(model_id: str = DEFAULT_MODEL_ID, override: str | None = None,
                  base_override: str | None = None) -> tuple[str, str | None]:
     """(file for -m, adapter for --lora or None), after resolve()'s checks."""
+    require_text(model_id)
     path = resolve(model_id, override, base_override)
     if base_id(model_id) is None:
         return path, None
