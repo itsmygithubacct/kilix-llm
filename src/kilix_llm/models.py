@@ -55,6 +55,270 @@ MODELS = {
             "142 of 300 with thinking off, and 239 of its 300 thinking replies looped or ran "
             "to the length limit. Leave --think off unless you are testing thinking mode."
         ),
+        "wizard_only": True,
+    },
+    # The stock Qwen3.5-0.8B Q8_0 that qwen-0.8b-no-loop-01/02 were edited
+    # from, and the base that adapters in this catalogue load over. Apache-2.0.
+    "qwen3.5-0.8b": {
+        "title": "Qwen3.5 0.8B Q8 (GPU)",
+        "file": "Qwen3.5-0.8B-Q8_0.gguf",
+        "size": 833_592_096,
+        "sha256": "37ae482d336108d23516fa35e8e0c4126688d81018b87178a18d752a1357814f",
+        "url": (
+            "https://huggingface.co/ggml-org/Qwen3.5-0.8B-GGUF/resolve/"
+            "807dfd9a6fadbf703207aac3bfb0b2b3040d077c/Qwen3.5-0.8B-Q8_0.gguf"
+        ),
+        "publisher": "ggml-org/Qwen3.5-0.8B-GGUF",
+        "ctx": 8192,
+        "quant": "Q8_0",
+        "n_gpu_layers": 99,
+        "family": "qwen3.5",
+        # `judge` runs the stock base with the contract prompt alone, so the
+        # whole path works before any tuning is released.
+        "tasks": ["judge"],
+        "sizer_model": "qwen3.5-0.8b-q8_0",
+        "licence": {
+            "id": "Apache-2.0",
+            "notice": (
+                "Qwen3.5-0.8B by Alibaba Cloud (Qwen), Apache-2.0; GGUF conversion "
+                "by ggml-org."
+            ),
+            "url": (
+                "https://huggingface.co/Qwen/Qwen3.5-0.8B/blob/"
+                "2fc06364715b967f1860aea9cf38778875588b17/LICENSE"
+            ),
+        },
+    },
+    # LiquidAI's own Q8_0 of LFM2-1.2B-Tool, the base for LFM2 tunings. The
+    # LFM Open License v1.0 is delivered as a notice, Debian style (owner,
+    # 2026-11-07): its full text is downloaded with the weights and saved
+    # beside them, and no agreement is taken or recorded.
+    "lfm2-1.2b-tool": {
+        "title": "LFM2 1.2B Tool Q8 (GPU)",
+        "file": "LFM2-1.2B-Tool-Q8_0.gguf",
+        "size": 1_246_252_768,
+        "sha256": "bf035d5876eb8ef0b1a87cf0cf30d9717e4cc628d483c5b49b342603d5f2ee67",
+        "url": (
+            "https://huggingface.co/LiquidAI/LFM2-1.2B-Tool-GGUF/resolve/"
+            "e7ec4149433c75d4bb53a0742ee1ebde7fcbd183/LFM2-1.2B-Tool-Q8_0.gguf"
+        ),
+        "publisher": "LiquidAI/LFM2-1.2B-Tool-GGUF",
+        "ctx": 8192,
+        "quant": "Q8_0",
+        "n_gpu_layers": 99,
+        "family": "lfm2",
+        "tasks": ["judge"],
+        "sizer_model": "lfm2-1.2b-tool-q8_0",
+        "licence": {
+            "id": "LFM-Open-License-1.0",
+            "notice": (
+                "LFM2-1.2B-Tool by Liquid AI is under the LFM Open License v1.0, which "
+                "limits commercial use. Its full text is downloaded with the weights and "
+                "saved beside them. No agreement is asked for or recorded."
+            ),
+            "url": (
+                "https://huggingface.co/LiquidAI/LFM2-1.2B-Tool-GGUF/blob/"
+                "e7ec4149433c75d4bb53a0742ee1ebde7fcbd183/LICENSE"
+            ),
+            "file": {
+                "name": "LFM2-1.2B-Tool-Q8_0.LICENSE",
+                "size": 10_574,
+                "sha256": "4d28ca14dedc0b3d0fcc2b3339f0e79931faa33874f3d24f522183a8fc70068c",
+                "url": (
+                    "https://huggingface.co/LiquidAI/LFM2-1.2B-Tool-GGUF/resolve/"
+                    "e7ec4149433c75d4bb53a0742ee1ebde7fcbd183/LICENSE"
+                ),
+            },
+        },
+    },
+    # Qwen3.5 sizes the catalogue lacked, as the Ollama library publishes them
+    # (its qwen3.5:2b and qwen3.5:9b text GGUFs; the vision projectors are not
+    # catalogued). These are the files the draft-and-judge measurements used.
+    "qwen3.5-2b": {
+        "title": "Qwen3.5 2B Q8 (GPU)",
+        "file": "Qwen3.5-2B-Q8_0.gguf",
+        "size": 2_012_012_448,
+        "sha256": "e8bf47d40c5ba68baf8f3e503ee36710da6e8641cb0a670a508cff5b3f0cfbf7",
+        "url": "https://registry.ollama.ai/v2/library/qwen3.5/blobs/sha256:e8bf47d40c5ba68baf8f3e503ee36710da6e8641cb0a670a508cff5b3f0cfbf7",
+        "publisher": "registry.ollama.ai/library/qwen3.5:2b",
+        "ctx": 8192,
+        "quant": "Q8_0",
+        "n_gpu_layers": 99,
+        "family": "qwen3.5",
+        "licence": {
+            "id": "Apache-2.0",
+            "notice": "Qwen3.5-2B by Alibaba Cloud (Qwen), Apache-2.0; GGUF from the Ollama library.",
+            "file": {
+                "name": "Qwen3.5-2B-Q8_0.LICENSE",
+                "size": 11_343,
+                "sha256": "50cbab8a892c5f2993b8c7351a99182507472def3b1374558308605d99b86b32",
+                "url": "https://registry.ollama.ai/v2/library/qwen3.5/blobs/sha256:50cbab8a892c5f2993b8c7351a99182507472def3b1374558308605d99b86b32",
+            },
+        },
+    },
+    "qwen3.5-9b": {
+        "title": "Qwen3.5 9B Q4 (GPU)",
+        "file": "Qwen3.5-9B-Q4_K_M.gguf",
+        "size": 5_629_109_120,
+        "sha256": "02d45dc1cf451ba2475ac33b301c2dd8f985abe4c182ce04a1f2f5bf0260278d",
+        "url": "https://registry.ollama.ai/v2/library/qwen3.5/blobs/sha256:02d45dc1cf451ba2475ac33b301c2dd8f985abe4c182ce04a1f2f5bf0260278d",
+        "publisher": "registry.ollama.ai/library/qwen3.5:9b",
+        "ctx": 8192,
+        "quant": "Q4_K_M",
+        "n_gpu_layers": 99,
+        "family": "qwen3.5",
+        "licence": {
+            "id": "Apache-2.0",
+            "notice": "Qwen3.5-9B by Alibaba Cloud (Qwen), Apache-2.0; GGUF from the Ollama library.",
+            "file": {
+                "name": "Qwen3.5-9B-Q4_K_M.LICENSE",
+                "size": 11_343,
+                "sha256": "50cbab8a892c5f2993b8c7351a99182507472def3b1374558308605d99b86b32",
+                "url": "https://registry.ollama.ai/v2/library/qwen3.5/blobs/sha256:50cbab8a892c5f2993b8c7351a99182507472def3b1374558308605d99b86b32",
+            },
+        },
+    },
+    # The smaller quantisation of the 4B from the same unsloth revision as
+    # `qwen3.5-4b`: 0.8 GB less, for a GPU that also holds other models.
+    "qwen3.5-4b-q4km": {
+        "title": "Qwen3.5 4B Q4 (GPU)",
+        "file": "Qwen3.5-4B-Q4_K_M.gguf",
+        "size": 2_740_937_888,
+        "sha256": "00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4",
+        "url": (
+            "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/"
+            "e87f176479d0855a907a41277aca2f8ee7a09523/Qwen3.5-4B-Q4_K_M.gguf"
+        ),
+        "publisher": "unsloth/Qwen3.5-4B-GGUF",
+        "ctx": 8192,
+        "quant": "Q4_K_M",
+        "n_gpu_layers": 99,
+        "family": "qwen3.5",
+    },
+    # d3: decision models, full fine-tunes of Qwen with a 255-way readout in
+    # place of text output. One pass answers a question about the text it is
+    # shown; `/v1/systemone` is the only way to ask, so `run` and `chat` refuse
+    # them and `stack` uses them as the judge. Context is 4,096 tokens. The
+    # files are the Ollama library's d3 text GGUFs; llama.cpp loads them
+    # without the projector the library also ships.
+    "d3-2b": {
+        "title": "d3 2B Q8 decision model (GPU)",
+        "file": "d3-2b-Q8_0.gguf",
+        "size": 2_552_358_464,
+        "sha256": "47d85eed4b76e2613d2b1496f6a106841fc605638f96acf46ef54ad1a9f45707",
+        "url": "https://registry.ollama.ai/v2/library/d3/blobs/sha256:47d85eed4b76e2613d2b1496f6a106841fc605638f96acf46ef54ad1a9f45707",
+        "publisher": "registry.ollama.ai/library/d3:2b",
+        "ctx": 4096,
+        "quant": "Q8_0",
+        "n_gpu_layers": 99,
+        "family": "d3",
+        "tasks": ["decide"],
+        "licence": {
+            "id": "Apache-2.0",
+            "notice": "d3 2B by vllm-sr, fine-tuned from Qwen, Apache-2.0; GGUF from the Ollama library.",
+            "file": {
+                "name": "d3-2b-Q8_0.LICENSE",
+                "size": 11_358,
+                "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+                "url": "https://registry.ollama.ai/v2/library/d3/blobs/sha256:cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+            },
+        },
+    },
+    "d3-4b": {
+        "title": "d3 4B Q8 decision model (GPU)",
+        "file": "d3-4b-Q8_0.gguf",
+        "size": 5_157_835_328,
+        "sha256": "bea9ace37fcca311cf7fa973bfd2b37b1599d771bed23639416a7d73109d5eda",
+        "url": "https://registry.ollama.ai/v2/library/d3/blobs/sha256:bea9ace37fcca311cf7fa973bfd2b37b1599d771bed23639416a7d73109d5eda",
+        "publisher": "registry.ollama.ai/library/d3:4b",
+        "ctx": 4096,
+        "quant": "Q8_0",
+        "n_gpu_layers": 99,
+        "family": "d3",
+        "tasks": ["decide"],
+        "licence": {
+            "id": "Apache-2.0",
+            "notice": "d3 4B by vllm-sr, fine-tuned from Qwen, Apache-2.0; GGUF from the Ollama library.",
+            "file": {
+                "name": "d3-4b-Q8_0.LICENSE",
+                "size": 11_358,
+                "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+                "url": "https://registry.ollama.ai/v2/library/d3/blobs/sha256:cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+            },
+        },
+    },
+    "d3-9b": {
+        "title": "d3 9B Q8 decision model (GPU)",
+        "file": "d3-9b-Q8_0.gguf",
+        "size": 9_527_503_328,
+        "sha256": "2d93d972eace90a0fb8f1c70d34f557a5dad40078f697c8796aee9abfdffeef8",
+        "url": "https://registry.ollama.ai/v2/library/d3/blobs/sha256:2d93d972eace90a0fb8f1c70d34f557a5dad40078f697c8796aee9abfdffeef8",
+        "publisher": "registry.ollama.ai/library/d3:9b",
+        "ctx": 4096,
+        "quant": "Q8_0",
+        "n_gpu_layers": 99,
+        "family": "d3",
+        "tasks": ["decide"],
+        "licence": {
+            "id": "Apache-2.0",
+            "notice": "d3 9B by vllm-sr, fine-tuned from Qwen, Apache-2.0; GGUF from the Ollama library.",
+            "file": {
+                "name": "d3-9b-Q8_0.LICENSE",
+                "size": 11_358,
+                "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+                "url": "https://registry.ollama.ai/v2/library/d3/blobs/sha256:cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+            },
+        },
+    },
+    "d3-27b": {
+        "title": "d3 27B Q8 decision model (GPU)",
+        "file": "d3-27b-Q8_0.gguf",
+        "size": 28_595_765_504,
+        "sha256": "497a0244294a9f2634b3b3fc96f0b9c1662d1c546a4b1642051b292430823ec7",
+        "url": "https://registry.ollama.ai/v2/library/d3/blobs/sha256:497a0244294a9f2634b3b3fc96f0b9c1662d1c546a4b1642051b292430823ec7",
+        "publisher": "registry.ollama.ai/library/d3:27b",
+        "ctx": 4096,
+        "quant": "Q8_0",
+        "n_gpu_layers": 99,
+        "family": "d3",
+        "tasks": ["decide"],
+        "licence": {
+            "id": "Apache-2.0",
+            "notice": "d3 27B by vllm-sr, fine-tuned from Qwen, Apache-2.0; GGUF from the Ollama library.",
+            "file": {
+                "name": "d3-27b-Q8_0.LICENSE",
+                "size": 11_358,
+                "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+                "url": "https://registry.ollama.ai/v2/library/d3/blobs/sha256:cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+            },
+        },
+    },
+    # Tunings: LoRA adapters over a stock base above. Each is data only: the
+    # base it loads over, the task command that runs it, and its release
+    # asset. An entry with no sha256 is not released yet and is refused.
+    "qwen-0.8b-binary-01": {
+        "title": "Qwen3.5 0.8B binary 01 (adapter over Q8)",
+        "file": "qwen-0.8b-binary-01.gguf",
+        "size": None,
+        "sha256": None,
+        "url": (
+            "https://github.com/itsmygithubacct/kilix-llm/releases/download/"
+            "qwen-0.8b-binary-01/qwen-0.8b-binary-01.gguf"
+        ),
+        "publisher": "itsmygithubacct (adapter for Qwen/Qwen3.5-0.8B)",
+        "ctx": 8192,
+        "quant": "LoRA rank 8 over Q8_0",
+        "n_gpu_layers": 99,
+        "family": "qwen3.5",
+        "base": "qwen3.5-0.8b",
+        "tasks": ["judge"],
+        "licence": {
+            "id": "Apache-2.0",
+            "notice": (
+                "An adapter by itsmygithubacct for Qwen3.5-0.8B (Alibaba Cloud, "
+                "Apache-2.0), released under Apache-2.0; see its model card."
+            ),
+        },
     },
     "qwen3.8-27b": {
         "title": "Qwen3.8 27B Q4",
@@ -119,15 +383,97 @@ def model_path(model_id: str = DEFAULT_MODEL_ID, override: str | None = None) ->
     return os.path.join(paths.models_dir(), spec(model_id)["file"])
 
 
-def resolve(model_id: str = DEFAULT_MODEL_ID, override: str | None = None) -> str:
-    """Return the weight file if it is present and the expected length."""
+def wizard_install(model_id: str) -> str:
+    return (
+        f"Install it with the model wizard: kilix models install {model_id}. "
+        "That delivers its licence notices."
+    )
+
+
+def released(model_id: str) -> bool:
+    """An entry without a sha256 is catalogued ahead of its release."""
+    return spec(model_id).get("sha256") is not None
+
+
+def install_hint(model_id: str) -> str:
+    if spec(model_id).get("wizard_only"):
+        return wizard_install(model_id)
+    hint = f"kilix-llm pull --model-id {model_id} downloads it"
+    if "judge" in spec(model_id).get("tasks", ()):
+        hint += f"; kilix-llm judge --model-id {model_id} --yes downloads what it needs"
+    return hint + "."
+
+
+def require_released(model_id: str) -> None:
+    if not released(model_id):
+        raise ModelError(
+            f"{spec(model_id)['title']} ({model_id}) is not released yet."
+            + (f" Its base runs the same task: --model-id {base_id(model_id)}"
+               if base_id(model_id) else "")
+        )
+
+
+def require_text(model_id: str) -> None:
+    """Refuse a decision model where a command needs text back."""
+    if spec(model_id).get("family") == "d3":
+        raise ModelError(
+            f"{spec(model_id)['title']} ({model_id}) answers questions through /v1/systemone and "
+            f"writes no text. Use it as a judge:  kilix-llm stack serve --judge {model_id}"
+        )
+
+
+def base_id(model_id: str) -> str | None:
+    """The catalogue id an adapter must be loaded over, or None for a full model."""
+    return spec(model_id).get("base")
+
+
+def base_path(model_id: str, base_override: str | None = None) -> str:
+    """Where an adapter's base is read: --base, else the base's catalogue path."""
+    base = base_id(model_id)
+    if base is None:
+        if base_override:
+            raise ModelError(f"--base applies only to an adapter; {model_id} is a full model")
+        raise ModelError(f"{model_id} is a full model and has no base")
+    return base_override or model_path(base)
+
+
+def _check_base(model_id: str, base_override: str | None = None) -> None:
+    """An adapter's base must be present and exactly the catalogued length."""
+    base = base_id(model_id)
+    if base is None:
+        if base_override:
+            base_path(model_id, base_override)
+        return
+    record = spec(model_id)
+    found = base_path(model_id, base_override)
+    base_record = spec(base)
+    install = install_hint(model_id if record.get("wizard_only") else base)
+    if not os.path.isfile(found):
+        raise ModelError(
+            f"{record['title']} loads over {base_record['title']}, which is not "
+            f"downloaded ({found} missing).\n{install}"
+        )
+    actual = os.path.getsize(found)
+    if actual != base_record["size"]:
+        raise ModelError(
+            f"{found} is {actual} bytes, expected {base_record['size']}: "
+            f"{record['title']} loads only over that exact file.\n{install}"
+        )
+
+
+def resolve(model_id: str = DEFAULT_MODEL_ID, override: str | None = None,
+            base_override: str | None = None) -> str:
+    """Return the weight file if it is present and the expected length.
+
+    For an adapter this is the adapter file, and its base must be present and
+    the expected length too. `override` names the adapter; `base_override`
+    names the base (each content asset installs into its own directory).
+    """
+    require_released(model_id)
     path = model_path(model_id, override)
     record = spec(model_id)
-    if model_id == "qwen-0.8b-no-loop-02":
-        install = (
-            "Install it with the model wizard: kilix models install "
-            "qwen-0.8b-no-loop-02. That delivers its licence notices."
-        )
+    if record.get("wizard_only"):
+        install = wizard_install(model_id)
         if not os.path.isfile(path):
             raise ModelError(
                 f"{record['title']} is not downloaded ({path} missing).\n{install}"
@@ -137,6 +483,7 @@ def resolve(model_id: str = DEFAULT_MODEL_ID, override: str | None = None) -> st
             raise ModelError(
                 f"{path} is {actual} bytes, expected {record['size']}.\n{install}"
             )
+        _check_base(model_id, base_override)
         return path
     if not os.path.isfile(path):
         raise ModelError(
@@ -149,6 +496,7 @@ def resolve(model_id: str = DEFAULT_MODEL_ID, override: str | None = None) -> st
             f"{path} is {actual} bytes, expected {record['size']} — "
             f"an interrupted download? `kilix-llm pull --model-id {model_id}` resumes it"
         )
+    _check_base(model_id, base_override)
     return path
 
 
@@ -163,12 +511,32 @@ def digest_file(path: str) -> str:
     return hasher.hexdigest()
 
 
-def verify(model_id: str = DEFAULT_MODEL_ID, override: str | None = None) -> str:
-    path = resolve(model_id, override)
+def verify(model_id: str = DEFAULT_MODEL_ID, override: str | None = None,
+           base_override: str | None = None) -> str:
+    path = resolve(model_id, override, base_override)
     record = spec(model_id)
     got = digest_file(path)
     if got != record["sha256"]:
         raise ModelError(
             f"{path} sha256 is {got}, expected {record['sha256']}"
         )
+    base = base_id(model_id)
+    if base is not None:
+        base_file = base_path(model_id, base_override)
+        got = digest_file(base_file)
+        if got != spec(base)["sha256"]:
+            raise ModelError(
+                f"{base_file} sha256 is {got}, expected {spec(base)['sha256']}: "
+                f"{record['title']} loads only over that exact file"
+            )
     return path
+
+
+def launch_files(model_id: str = DEFAULT_MODEL_ID, override: str | None = None,
+                 base_override: str | None = None) -> tuple[str, str | None]:
+    """(file for -m, adapter for --lora or None), after resolve()'s checks."""
+    require_text(model_id)
+    path = resolve(model_id, override, base_override)
+    if base_id(model_id) is None:
+        return path, None
+    return base_path(model_id, base_override), path

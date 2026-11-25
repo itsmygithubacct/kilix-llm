@@ -62,12 +62,16 @@ missing runtime is then an error that names the build command.
 | `kilix-llm update [--check] [--backend B]` | build llama.cpp's newest release and switch to it (`--check`: report only, exit 10 when one is available) |
 | `kilix-llm rollback` | switch back to the build before the last update |
 | `kilix-llm devices` | list GPU names for `--device` |
-| `kilix-llm pull [--model-id ID]` | download a catalogued GGUF (resumable): `qwen3.8-27b`, `qwen3.5-4b`, `qwen-0.8b-no-loop-02` |
+| `kilix-llm pull [--model-id ID]` | download a catalogued GGUF (resumable): `qwen3.8-27b`, `qwen3.5-9b`, `qwen3.5-4b`, `qwen3.5-4b-q4km`, `qwen3.5-2b`, `qwen3.5-0.8b`, the d3 decision models `d3-2b`, `d3-4b`, `d3-9b` and `d3-27b`, and `lfm2-1.2b-tool` (each with its licence text where the entry ships one); the wizard-installed `qwen-0.8b-no-loop-02` and unreleased tunings are refused |
 | `kilix-llm verify` | size + sha256 of the weights |
 | `kilix-llm path` | where the weights resolve |
 | `kilix-llm run PROMPT` | one shot via `llama-cli` |
 | `kilix-llm chat [--think]` | interactive conversation via `llama-cli` (`/clear`, `/regen`, `/exit`) |
 | `kilix-llm serve` | `llama-server` on loopback |
+| `kilix-llm judge [--model-id ID] [--base PATH] [--stdin \| TEXT] [--json] [--truncate head\|tail] [--yes]` | one yes/no or pass/fail answer: prints `0` or `1` and exits with it ([docs/judge.md](docs/judge.md)) |
+| `kilix-llm stack serve [--worker MODEL[:N]]... [--drafts N] [--ctx N] [--judge MODEL] [--socket PATH] [--journal FILE]` | drafts from one or more workers and one judge behind one OpenAI-style endpoint ([docs/stack.md](docs/stack.md)) |
+| `kilix-llm stack fit [--worker MODEL]... [--judge MODEL] [--ctx N] [--max-slots N] [--json]` | how many slots load and answer beside the judge on this machine |
+| `kilix-llm stack choices [--json]` | the installed models and agents a stack can use |
 | `kilix-llm vm setup/start/pi/shell/status/stop` | persistent QEMU guest, Pi sessions, and host GPU server |
 | `kilix-llm ask-help` | experimental document help through explicit local answer/ranking runs |
 
@@ -124,6 +128,26 @@ recommended for it and is off by default; `--think` prints a warning first.
 `kilix-llm pull` refuses this id: the model wizard installs it with its licence
 notices (`kilix models install qwen-0.8b-no-loop-02`).
 
+`qwen3.5-0.8b` is the stock Qwen3.5-0.8B Q8_0 (ggml-org, 833,592,096 bytes),
+pinned by revision and sha256. A catalogue entry that names a `base` is a LoRA
+adapter: `run`, `chat` and `serve` load the base with `-m` and the adapter with
+`--lora`. A missing or different-length base is refused at launch, and `verify`
+checks both sha256 digests. `--base PATH` names a base that lives outside
+kilix-llm's model directory (the model wizard installs each asset into its own
+directory); it is refused for a full model.
+
+`lfm2-1.2b-tool` is LiquidAI's own Q8_0 of LFM2-1.2B-Tool (1,246,252,768 bytes,
+pinned by revision and sha256), the base for LFM2 tunings. It is under the LFM
+Open License v1.0, which limits commercial use. Its licence is delivered as a
+notice, Debian style: `pull` (and `judge --yes`) downloads the licence text with
+the weights and saves it beside them as `LFM2-1.2B-Tool-Q8_0.LICENSE`. No
+agreement is asked for or recorded.
+
+Tunings are catalogue entries, not code: each names the base it loads over,
+the task command that runs it (`judge` for now) and its release asset. An entry
+without a sha256 is catalogued ahead of its release and is refused.
+`qwen-0.8b-binary-01` is such an entry until its adapter passes its ship bar.
+
 ## Updating llama.cpp
 
 The pin is the reviewed llama.cpp this checkout builds by default.
@@ -169,6 +193,8 @@ Model commands use a uv virtual environment from [lab/scripts/uv-venv.sh](lab/sc
 ## Documentation
 
 - [docs/gpu-model.md](docs/gpu-model.md) — the 4B Vulkan profile, build dependencies and validation results
+- [docs/judge.md](docs/judge.md) — `kilix-llm judge`: one yes/no answer as an exit code
+- [docs/stack.md](docs/stack.md) — `kilix-llm stack`: several drafts at once and one judge
 - [docs/pi-vm.md](docs/pi-vm.md) — the persistent QEMU guest, shared folders and agent sessions
 - [docs/help-module.md](docs/help-module.md) — `ask-help` with kilix-help-llm runs and the calibrated path
 - [docs/vendoring.md](docs/vendoring.md) — moving the llama.cpp pin and carrying patches
