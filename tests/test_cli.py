@@ -2,14 +2,25 @@
 
 from __future__ import annotations
 
+import argparse
+import io
 import os
 import subprocess
 import tempfile
 import unittest
+from contextlib import redirect_stderr
 from unittest import mock
 
 from kilix_llm import models, paths, runtime
-from kilix_llm.cli import build_parser, gpu_layers, run_argv, runtime_backend, serve_argv
+from kilix_llm.cli import (
+    build_parser,
+    chat_argv,
+    cmd_pull,
+    gpu_layers,
+    run_argv,
+    runtime_backend,
+    serve_argv,
+)
 
 
 REPO = paths.REPO_DIR
@@ -129,6 +140,66 @@ class ArgvTests(unittest.TestCase):
         argv = serve_argv(args, "llama-server", "model.gguf")
         self.assertEqual(argv[argv.index("--reasoning") + 1], "on")
 
+    def test_no_loop_model_uses_the_qwen35_gpu_profile(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["serve", "--model-id", "qwen-0.8b-no-loop-02"])
+        argv = serve_argv(args, "llama-server", "model.gguf")
+        for flag, value in (("-ngl", "99"), ("--parallel", "1"), ("--reasoning", "off"),
+                            ("--temp", "0.7"), ("--presence-penalty", "1.5"), ("--min-p", "0")):
+            self.assertEqual(argv[argv.index(flag) + 1], value)
+        args.think = True
+        argv = serve_argv(args, "llama-server", "model.gguf")
+        self.assertEqual(argv[argv.index("--reasoning") + 1], "on")
+        # Thinking keeps the sampler the loop reduction was measured with.
+        for flag, value in (("--temp", "0.7"), ("--top-p", "0.80"), ("--presence-penalty", "1.5")):
+            self.assertEqual(argv[argv.index(flag) + 1], value)
+        four_b = parser.parse_args(["serve", "--model-id", "qwen3.5-4b", "--think"])
+        argv = serve_argv(four_b, "llama-server", "model.gguf")
+        self.assertEqual(argv[argv.index("--temp") + 1], "1.0")
+        run_args = parser.parse_args(["run", "--model-id", "qwen-0.8b-no-loop-02", "hi"])
+        run_args.device = "Vulkan0"
+        argv = run_argv(run_args, "llama-cli", "model.gguf")
+        self.assertEqual(argv[argv.index("--override-tensor") + 1], r"^token_embd\.weight$=Vulkan0")
+        self.assertEqual(argv[argv.index("--presence-penalty") + 1], "1.5")
+
+    def test_chat_is_interactive_with_the_catalogue_sampler(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["chat", "--model-id", "qwen-0.8b-no-loop-02", "--gpu-layers", "0", "--think"])
+        argv = chat_argv(args, "llama-cli", "model.gguf")
+        for flag in ("-p", "-st", "-n", "--cache-type-k"):
+            self.assertNotIn(flag, argv)
+        for flag, value in (("-ngl", "0"), ("--device", "none"), ("--reasoning", "on"), ("--temp", "0.7"),
+                            ("--top-p", "0.80"), ("--presence-penalty", "1.5")):
+            self.assertEqual(argv[argv.index(flag) + 1], value)
+        self.assertEqual(runtime_backend(args), "cpu")
+        capped = parser.parse_args(["chat", "--model-id", "qwen-0.8b-no-loop-02", "-n", "512"])
+        argv = chat_argv(capped, "llama-cli", "model.gguf")
+        self.assertEqual(argv[argv.index("-n") + 1], "512")
+        one_shot = run_argv(parser.parse_args(["run", "--model-id", "qwen-0.8b-no-loop-02", "hi"]),
+                            "llama-cli", "model.gguf")
+        self.assertEqual(one_shot[one_shot.index("-p"):one_shot.index("-p") + 3], ["-p", "hi", "-st"])
+
+    def test_cpu_model_keeps_llama_defaults(self) -> None:
+        args = build_parser().parse_args(["serve"])
+        argv = serve_argv(args, "llama-server", "model.gguf")
+        self.assertNotIn("--presence-penalty", argv)
+        self.assertNotIn("--reasoning", argv)
+
+    def test_catalogued_no_loop_identity(self) -> None:
+        record = models.spec("qwen-0.8b-no-loop-02")
+        self.assertEqual(record["file"], "qwen-0.8b-no-loop-02.gguf")
+        self.assertEqual(record["size"], 833_592_416)
+        self.assertEqual(
+            record["sha256"],
+            "e4d6e93eb644da62e0c5ac0b7b188b4c2cbf31f07a7dcfd42764b6236f96d8a0",
+        )
+        self.assertTrue(record["url"].endswith("/" + record["file"]))
+        with tempfile.NamedTemporaryFile() as model:
+            model.truncate(record["size"])
+            self.assertEqual(models.resolve("qwen-0.8b-no-loop-02", model.name), model.name)
+            with self.assertRaises(models.ModelError):
+                models.resolve("qwen3.5-4b", model.name)
+
     def test_gpu_model_size_is_checked_against_selected_catalog(self) -> None:
         with tempfile.NamedTemporaryFile() as model:
             model.truncate(models.spec("qwen3.5-4b")["size"])
@@ -154,6 +225,80 @@ class ArgvTests(unittest.TestCase):
         self.assertIn("GGML_CUDA=OFF", flags)
         self.assertIn("GGML_VULKAN=OFF", flags)
         self.assertIn("LLAMA_CURL=OFF", flags)
+        self.assertIn("LLAMA_USE_PREBUILT_UI=OFF", flags)
+
+
+class ThinkWarningTests(unittest.TestCase):
+    """The 0.8B keeps thinking off by default and warns when it is turned on."""
+
+    def launch(self, argv: list[str]) -> str:
+        from kilix_llm.cli import main
+        err = io.StringIO()
+        with tempfile.TemporaryDirectory() as root, redirect_stderr(err):
+            # A missing weight file stops the launch right after the warning.
+            with self.assertRaises(SystemExit):
+                main([*argv, "--model", os.path.join(root, "missing.gguf")])
+        return err.getvalue()
+
+    def test_think_on_the_08b_prints_the_measured_warning(self) -> None:
+        for command in (["run", "--model-id", "qwen-0.8b-no-loop-02", "--think", "hi"],
+                        ["chat", "--model-id", "qwen-0.8b-no-loop-02", "--gpu-layers", "0", "--think"],
+                        ["serve", "--model-id", "qwen-0.8b-no-loop-02", "--think"]):
+            with self.subTest(command=command[0]):
+                err = self.launch(command)
+                self.assertIn("kilix-llm: warning: thinking mode is not recommended for this 0.8B model", err)
+                self.assertIn("56 of 300", err)
+                self.assertIn("142 of 300", err)
+
+    def test_no_warning_without_think_or_for_other_models(self) -> None:
+        for command in (["run", "--model-id", "qwen-0.8b-no-loop-02", "hi"],
+                        ["chat", "--model-id", "qwen-0.8b-no-loop-02", "--gpu-layers", "0"],
+                        ["serve", "--model-id", "qwen-0.8b-no-loop-02"],
+                        ["serve", "--model-id", "qwen3.5-4b", "--think"]):
+            with self.subTest(command=command):
+                self.assertNotIn("warning", self.launch(command))
+
+    def test_thinking_is_off_unless_asked(self) -> None:
+        parser = build_parser()
+        for command in (["chat", "--model-id", "qwen-0.8b-no-loop-02"],
+                        ["run", "--model-id", "qwen-0.8b-no-loop-02", "hi"],
+                        ["serve", "--model-id", "qwen-0.8b-no-loop-02"]):
+            with self.subTest(command=command[0]):
+                args = parser.parse_args(command)
+                self.assertFalse(args.think)
+                build = {"chat": chat_argv, "run": run_argv, "serve": serve_argv}[command[0]]
+                argv = build(args, "llama", "model.gguf")
+                self.assertEqual(argv[argv.index("--reasoning") + 1], "off")
+        self.assertIsNone(models.think_warning("qwen3.5-4b", True))
+        self.assertIsNone(models.think_warning("qwen-0.8b-no-loop-02", False))
+
+
+class PullTests(unittest.TestCase):
+    def test_no_loop_pull_points_at_the_wizard(self) -> None:
+        err = io.StringIO()
+        with redirect_stderr(err):
+            with self.assertRaises(SystemExit) as raised:
+                cmd_pull(argparse.Namespace(model_id="qwen-0.8b-no-loop-02"))
+        self.assertEqual(raised.exception.code, 2)
+        text = err.getvalue()
+        self.assertIn("kilix models install qwen-0.8b-no-loop-02", text)
+        self.assertIn("licence notices", text)
+
+    def test_missing_no_loop_file_does_not_offer_pull(self) -> None:
+        with self.assertRaises(models.ModelError) as raised:
+            models.resolve("qwen-0.8b-no-loop-02", "/no/such/qwen-0.8b-no-loop-02.gguf")
+        text = str(raised.exception)
+        self.assertIn("kilix models install qwen-0.8b-no-loop-02", text)
+        self.assertNotIn("pull", text)
+
+    def test_other_pulls_still_fetch(self) -> None:
+        with tempfile.TemporaryDirectory() as models_dir:
+            with mock.patch.dict(os.environ, {"KILIX_LLM_MODELS_DIR": models_dir}), \
+                    mock.patch("kilix_llm.cli.shutil.which", return_value="/usr/bin/curl"), \
+                    mock.patch("kilix_llm.cli.subprocess.call", return_value=1) as call:
+                rc = cmd_pull(argparse.Namespace(model_id="qwen3.5-4b"))
+        self.assertEqual(rc, 1)
+        self.assertEqual(call.call_args.args[0][0], "/usr/bin/curl")
 
 
 class DeviceTests(unittest.TestCase):
@@ -222,6 +367,8 @@ class RuntimeFlagTests(unittest.TestCase):
             with self.subTest(extra=extra):
                 args = parser.parse_args(["run", *extra, "hi"])
                 self.assert_argv_parses(run_argv(args, cli, self.MISSING_MODEL))
+                args = parser.parse_args(["chat", *extra])
+                self.assert_argv_parses(chat_argv(args, cli, self.MISSING_MODEL))
 
     def test_serve_flags_are_accepted_by_llama_server(self) -> None:
         server = built("llama-server")

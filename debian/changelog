@@ -1,0 +1,6 @@
+kilix-llm (0.1.0+packaging1) UNRELEASED; urgency=medium
+
+  * Install the modules, pin, and scripts under /usr/share/kilix-llm.
+    Model weights stay outside the package. The checkout launcher is unchanged.
+
+ -- itsmygithubacct <itsmygithubacct@users.noreply.github.com>  Fri, 20 Nov 2026 07:49:14 +0000

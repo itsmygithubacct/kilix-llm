@@ -43,6 +43,12 @@ cd kilix-llm
 
 `./install.sh` puts a launcher on `PATH` that execs this checkout.
 
+`build` is optional: the first `run`, `chat` or `serve` builds the selected
+runtime when it is not built for the current pin, prints why, and sends the
+compile log to stderr. Later starts check a stamp in `bin/` and build nothing.
+A pin change rebuilds once. `KILIX_LLM_NO_AUTO_BUILD=1` turns this off, and a
+missing runtime is then an error that names the build command.
+
 ## Usage
 
 ### Commands
@@ -51,12 +57,13 @@ cd kilix-llm
 |---|---|
 | `kilix-llm doctor` | RAM, cores, pin, vendor tree, binaries, weights |
 | `kilix-llm vendor` | print the llama.cpp pin |
-| `kilix-llm build [--backend vulkan]` | compile the CPU or Vulkan runtime |
+| `kilix-llm build [--backend vulkan] [--if-needed] [--keep-build-tree]` | compile the CPU or Vulkan runtime (`--if-needed`: only when not built for this pin) |
 | `kilix-llm devices` | list GPU names for `--device` |
-| `kilix-llm pull [--model-id qwen3.5-4b]` | download a catalogued GGUF (resumable) |
+| `kilix-llm pull [--model-id ID]` | download a catalogued GGUF (resumable): `qwen3.8-27b`, `qwen3.5-4b`, `qwen-0.8b-no-loop-02` |
 | `kilix-llm verify` | size + sha256 of the weights |
 | `kilix-llm path` | where the weights resolve |
 | `kilix-llm run PROMPT` | one shot via `llama-cli` |
+| `kilix-llm chat [--think]` | interactive conversation via `llama-cli` (`/clear`, `/regen`, `/exit`) |
 | `kilix-llm serve` | `llama-server` on loopback |
 | `kilix-llm vm setup/start/pi/shell/status/stop` | persistent QEMU guest, Pi sessions, and host GPU server |
 | `kilix-llm ask-help` | experimental document help through explicit local answer/ranking runs |
@@ -94,6 +101,21 @@ the commit in `third_party/llama.cpp.pin`, so local patches are explicit
 files with recorded digests rather than edits to an unpinned tree. The
 model catalog in `src/kilix_llm/models.py` fixes each model's file size,
 digest and default GPU layers. See [docs/vendoring.md](docs/vendoring.md).
+
+A finished build keeps only `bin/` (the binaries, their shared libraries and
+the stamp, about 25 MB) and removes the cmake tree and the patched source
+copy, about 0.7 GB. Pass `--keep-build-tree` for fast incremental rebuilds
+while changing llama.cpp. A `KILIX_LLM_BUILD_DIR` you chose is never pruned.
+Builds of one backend take a lock, so concurrent first uses compile once. The
+build leaves llama.cpp's prebuilt web UI off and does not fetch it.
+
+`qwen-0.8b-no-loop-02` is Qwen3.5-0.8B Q8_0 with part of a published weight
+edit applied to reduce thinking-mode loops (Apache-2.0, modified from
+Qwen/Qwen3.5-0.8B; the edit is adapted from CC BY 4.0 material and the
+release's model card gives the attribution and results). Thinking mode is not
+recommended for it and is off by default; `--think` prints a warning first.
+`kilix-llm pull` refuses this id: the model wizard installs it with its licence
+notices (`kilix models install qwen-0.8b-no-loop-02`).
 
 ## Tests
 
